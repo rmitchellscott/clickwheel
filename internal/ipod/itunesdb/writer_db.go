@@ -10,7 +10,7 @@ import (
 
 const (
 	mhbdHeaderSize   = 244
-	defaultDBVersion = uint32(0x4F)
+	defaultDBVersion = uint32(0x13)
 	defaultPlatform  = 2
 )
 

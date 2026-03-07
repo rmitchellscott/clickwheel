@@ -267,7 +267,7 @@ func writeTrackMHODs(track *Track) ([]byte, int) {
 		{5, track.Genre, false},
 		{22, track.AlbumArtist, false},
 		{12, track.Composer, false},
-		{8, track.Comment, false},
+		{8, trackComment(track), false},
 		{6, track.FiletypeDesc, false},
 		{9, track.Category, false},
 		{14, track.Description, false},
@@ -310,6 +310,15 @@ func writeTrackMHODs(track *Track) ([]byte, int) {
 	}
 
 	return data, count
+}
+
+const sourceIDPrefix = "clickwheel:"
+
+func trackComment(t *Track) string {
+	if t.SourceID != "" {
+		return sourceIDPrefix + t.SourceID
+	}
+	return t.Comment
 }
 
 func filetypeLookup(key string) uint32 {

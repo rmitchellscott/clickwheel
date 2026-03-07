@@ -95,6 +95,9 @@ func TestRoundTrip(t *testing.T) {
 	if track1.MediaType != MediaTypeMusic {
 		t.Errorf("MediaType: got %d, want %d", track1.MediaType, MediaTypeMusic)
 	}
+	if track1.SourceID != "nav-123" {
+		t.Errorf("SourceID: got %q, want %q", track1.SourceID, "nav-123")
+	}
 
 	track2 := parsed.Tracks[1]
 	if track2.MediaType != MediaTypeAudiobook {
@@ -108,6 +111,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if track2.BookmarkTime != 1200000 {
 		t.Errorf("BookmarkTime: got %d, want 1200000", track2.BookmarkTime)
+	}
+	if track2.SourceID != "abs-456" {
+		t.Errorf("SourceID: got %q, want %q", track2.SourceID, "abs-456")
 	}
 
 	if len(parsed.Playlists) != 2 {

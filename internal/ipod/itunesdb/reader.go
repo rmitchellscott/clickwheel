@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 	"unicode/utf16"
 )
 
@@ -383,7 +384,11 @@ func assignTrackMHOD(t *Track, mhodType uint32, value string) {
 	case 7:
 		t.EQSetting = value
 	case 8:
-		t.Comment = value
+		if strings.HasPrefix(value, sourceIDPrefix) {
+			t.SourceID = strings.TrimPrefix(value, sourceIDPrefix)
+		} else {
+			t.Comment = value
+		}
 	case 9:
 		t.Category = value
 	case 10:

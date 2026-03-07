@@ -13,11 +13,10 @@ import (
 )
 
 type App struct {
-	ctx        context.Context
-	cfg        *config.Config
-	navClient  *navidrome.Client
-	absClient  *audiobookshelf.Client
-	syncEngine *sync.Engine
+	ctx       context.Context
+	cfg       *config.Config
+	navClient *navidrome.Client
+	absClient *audiobookshelf.Client
 }
 
 func NewApp() *App {
@@ -117,12 +116,18 @@ func (a *App) SetExclusions(exclusions config.Exclusions) error {
 	return a.cfg.Save()
 }
 
+func (a *App) newSyncEngine() *sync.Engine {
+	return sync.NewEngine(a.cfg, a.navClient, a.absClient)
+}
+
+func (a *App) PreviewSync() (*sync.PlanSummary, error) {
+	return a.newSyncEngine().Preview(a.ctx)
+}
+
 func (a *App) StartSync() error {
-	if a.syncEngine == nil {
-		a.syncEngine = sync.NewEngine(a.cfg, a.navClient, a.absClient)
-	}
+	e := a.newSyncEngine()
 	go func() {
-		err := a.syncEngine.Run(a.ctx, func(progress sync.Progress) {
+		err := e.Run(a.ctx, func(progress sync.Progress) {
 			runtime.EventsEmit(a.ctx, "sync:progress", progress)
 		})
 		if err != nil {

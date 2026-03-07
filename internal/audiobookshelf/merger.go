@@ -3,13 +3,27 @@ package audiobookshelf
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"codeberg.org/gruf/go-ffmpreg/ffmpreg"
 	"codeberg.org/gruf/go-ffmpreg/wasm"
+	"github.com/tetratelabs/wazero"
 )
+
+var nativeFFmpeg string
+
+func init() {
+	nativeFFmpeg, _ = exec.LookPath("ffmpeg")
+	if nativeFFmpeg != "" {
+		log.Printf("[ffmpeg] using native: %s", nativeFFmpeg)
+	} else {
+		log.Printf("[ffmpeg] native not found, using WASM (slower)")
+	}
+}
 
 func MergeToM4B(ctx context.Context, inputFiles []string, chapters []Chapter, outputPath string) error {
 	if len(inputFiles) == 0 {
@@ -48,41 +62,62 @@ func MergeToM4B(ctx context.Context, inputFiles []string, chapters []Chapter, ou
 		args = append(args, "-i", chapterFile, "-map_metadata", "1")
 	}
 	args = append(args,
-		"-c:a", "aac", "-b:a", "64k",
+		"-vn",
+		"-c:a", "aac", "-b:a", "64k", "-ar", "44100", "-profile:a", "aac_low", "-ac", "1",
 		"-movflags", "+faststart",
 		"-y", outputPath,
 	)
 
-	rc, err := ffmpreg.Ffmpeg(ctx, wasm.Args{
-		Stderr: os.Stderr,
-		Args:   args,
-	})
-	if err != nil {
-		return err
+	return runFFmpeg(ctx, args, dir)
+}
+
+func transcodeSingle(ctx context.Context, input, output string) error {
+	dir := filepath.Dir(input)
+	args := []string{
+		"-i", input,
+		"-vn",
+		"-c:a", "aac", "-b:a", "64k", "-ar", "44100", "-profile:a", "aac_low", "-ac", "1",
+		"-movflags", "+faststart",
+		"-y", output,
 	}
-	if rc != 0 {
-		return fmt.Errorf("ffmpeg merge exited with code %d", rc)
+	return runFFmpeg(ctx, args, dir)
+}
+
+func runFFmpeg(ctx context.Context, args []string, workDir string) error {
+	if nativeFFmpeg != "" {
+		return runNativeFFmpeg(ctx, args)
+	}
+	return runWasmFFmpeg(ctx, args, workDir)
+}
+
+func runNativeFFmpeg(ctx context.Context, args []string) error {
+	cmd := exec.CommandContext(ctx, nativeFFmpeg, args...)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg: %w", err)
 	}
 	return nil
 }
 
-func transcodeSingle(ctx context.Context, input, output string) error {
+func runWasmFFmpeg(ctx context.Context, args []string, workDir string) error {
 	rc, err := ffmpreg.Ffmpeg(ctx, wasm.Args{
 		Stderr: os.Stderr,
-		Args: []string{
-			"-i", input,
-			"-c:a", "aac", "-b:a", "64k",
-			"-movflags", "+faststart",
-			"-y", output,
-		},
+		Args:   args,
+		Config: mountDir(workDir),
 	})
 	if err != nil {
 		return err
 	}
 	if rc != 0 {
-		return fmt.Errorf("ffmpeg transcode exited with code %d", rc)
+		return fmt.Errorf("ffmpeg (wasm) exited with code %d", rc)
 	}
 	return nil
+}
+
+func mountDir(dir string) func(wazero.ModuleConfig) wazero.ModuleConfig {
+	return func(cfg wazero.ModuleConfig) wazero.ModuleConfig {
+		return cfg.WithFSConfig(wazero.NewFSConfig().WithDirMount(dir, dir))
+	}
 }
 
 func writeFFMetadata(chapters []Chapter, path string) error {

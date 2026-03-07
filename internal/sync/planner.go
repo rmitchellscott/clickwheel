@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"log"
 	"slices"
 
 	"clickwheel/internal/audiobookshelf"
@@ -73,8 +74,11 @@ func BuildPlan(ctx context.Context, cfg *config.Config, nav *navidrome.Client, a
 
 			var plTrackIDs []string
 			for _, song := range detail.Entry {
-				wantedIDs[song.ID] = true
 				plTrackIDs = append(plTrackIDs, song.ID)
+				if wantedIDs[song.ID] {
+					continue
+				}
+				wantedIDs[song.ID] = true
 				if !existingIDs[song.ID] {
 					plan.AddTracks = append(plan.AddTracks, TrackItem{
 						SourceID: song.ID,
@@ -101,14 +105,18 @@ func BuildPlan(ctx context.Context, cfg *config.Config, nav *navidrome.Client, a
 	if abs != nil {
 		libraries, err := abs.GetLibraries()
 		if err != nil {
+			log.Printf("[plan] ABS GetLibraries error: %v", err)
 			return nil, err
 		}
+		log.Printf("[plan] ABS libraries: %d", len(libraries))
 
 		for _, lib := range libraries {
 			books, err := abs.GetBooks(lib.ID)
 			if err != nil {
+				log.Printf("[plan] ABS GetBooks(%s) error: %v", lib.ID, err)
 				continue
 			}
+			log.Printf("[plan] ABS library %q: %d books", lib.Name, len(books))
 
 			for _, book := range books {
 				if slices.Contains(cfg.Exclusions.Books, book.ID) {
