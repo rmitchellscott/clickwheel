@@ -1,0 +1,127 @@
+{
+  "size": 10930,
+  "version": 19,
+  "num_datasets": 7,
+  "datasets": [
+    {
+      "type": 1,
+      "total_len": 5880,
+      "child_magic": "mhlt",
+      "child_count": 6,
+      "tracks": [
+        {
+          "track_id": 9,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        },
+        {
+          "track_id": 10,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        },
+        {
+          "track_id": 11,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        },
+        {
+          "track_id": 12,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        },
+        {
+          "track_id": 13,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        },
+        {
+          "track_id": 14,
+          "mhod_count": 5,
+          "mhod_types": [
+            1,
+            2,
+            4,
+            3,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "type": 2,
+      "total_len": 2832,
+      "child_magic": "mhlp",
+      "child_count": 1,
+      "playlists": [
+        {
+          "mhod_count": 14,
+          "item_count": 6,
+          "is_master": 1
+        }
+      ]
+    },
+    {
+      "type": 4,
+      "total_len": 810,
+      "child_magic": "mhla",
+      "child_count": 3
+    },
+    {
+      "type": 8,
+      "total_len": 600,
+      "child_magic": "mhli",
+      "child_count": 3
+    },
+    {
+      "type": 6,
+      "total_len": 188,
+      "child_magic": "mhlt",
+      "child_count": 0,
+      "tracks": []
+    },
+    {
+      "type": 10,
+      "total_len": 188,
+      "child_magic": "mhlt",
+      "child_count": 0,
+      "tracks": []
+    },
+    {
+      "type": 5,
+      "total_len": 188,
+      "child_magic": "mhlp",
+      "child_count": 0,
+      "playlists": []
+    }
+  ]
+}
