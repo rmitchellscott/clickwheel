@@ -169,6 +169,17 @@ func Transcode(ctx context.Context, input, output, format string, bitRate int) e
 			"-ac", "2",
 			"-y", output,
 		})
+	case "alac":
+		return runFFmpeg(ctx, []string{
+			"-i", input,
+			"-vn",
+			"-c:a", "alac",
+			"-ar", "44100",
+			"-ac", "2",
+			"-movflags", "+faststart",
+			"-f", "ipod",
+			"-y", output,
+		})
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}

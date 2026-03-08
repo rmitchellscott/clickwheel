@@ -439,7 +439,7 @@ export function IPodPage() {
             </div>
 
             <div className="text-xs">
-              <div className="grid grid-cols-[28px_1fr_1fr_1fr_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b bg-muted text-muted-foreground font-medium sticky top-0">
+              <div className="grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b bg-muted text-muted-foreground font-medium sticky top-0">
                 <button onClick={toggleAllVisible}
                   className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors mt-0.5',
                     filteredTracks.length > 0 && filteredTracks.every(t => selectedTracks.has(t.id))
@@ -449,6 +449,7 @@ export function IPodPage() {
                 <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('title')}>Title <SortIcon column="title" /></button>
                 <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('artist')}>Artist <SortIcon column="artist" /></button>
                 <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('album')}>Album <SortIcon column="album" /></button>
+                <div>Format</div>
                 <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('playCount')}>Plays <SortIcon column="playCount" /></button>
                 <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('lastPlayed')}>Played <SortIcon column="lastPlayed" /></button>
                 <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('dateAdded')}>Added <SortIcon column="dateAdded" /></button>
@@ -458,7 +459,7 @@ export function IPodPage() {
               {filteredTracks.map(t => (
                 <div key={t.id} onClick={() => toggleTrack(t.id)}
                   className={cn(
-                    "grid grid-cols-[28px_1fr_1fr_1fr_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b border-border/50 hover:bg-accent/30 transition-colors items-center cursor-pointer",
+                    "grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b border-border/50 hover:bg-accent/30 transition-colors items-center cursor-pointer",
                     selectedTracks.has(t.id) && "bg-primary/5"
                   )}>
                   <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
@@ -471,6 +472,7 @@ export function IPodPage() {
                   </div>
                   <span className="truncate text-muted-foreground">{t.artist}</span>
                   <span className="truncate text-muted-foreground">{t.album}</span>
+                  <span className="uppercase text-muted-foreground">{t.format}</span>
                   <span className="text-right tabular-nums">{t.playCount}</span>
                   <TimeAgo ts={t.lastPlayed} className="text-right text-muted-foreground" />
                   <TimeAgo ts={t.dateAdded} className="text-right text-muted-foreground" />

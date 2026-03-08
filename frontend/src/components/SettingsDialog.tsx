@@ -298,12 +298,13 @@ export function SettingsDialog() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="aac">AAC (.m4a)</SelectItem>
+                      <SelectItem value="alac">ALAC (.m4a)</SelectItem>
                       <SelectItem value="mp3">MP3</SelectItem>
                       <SelectItem value="raw">Original</SelectItem>
                     </SelectContent>
                   </Select>
                 </SettingRow>
-                {musicFormat !== 'raw' && (
+                {musicFormat !== 'raw' && musicFormat !== 'alac' && (
                   <SettingRow
                     label="Max bit rate"
                     description="Maximum bit rate for transcoded files (kbps)"

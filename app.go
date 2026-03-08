@@ -356,6 +356,7 @@ type IPodTrackInfo struct {
 	DateAdded    int64  `json:"dateAdded"`
 	Size         int    `json:"size"`
 	Type         string `json:"type"`
+	Format       string `json:"format"`
 	BookmarkTime int    `json:"bookmarkTime"`
 }
 
@@ -407,6 +408,14 @@ func (a *App) GetIPodTracks() ([]IPodTrackInfo, error) {
 			dateAdded = t.DateAdded.Unix()
 		}
 
+		format := t.FiletypeKey
+		if format == "m4a" && t.Duration > 0 {
+			kbps := t.Size * 8 / t.Duration
+			if kbps > 500 {
+				format = "alac"
+			}
+		}
+
 		tracks = append(tracks, IPodTrackInfo{
 			ID:           fmt.Sprintf("ipod-%d", t.UniqueID),
 			Title:        t.Title,
@@ -419,6 +428,7 @@ func (a *App) GetIPodTracks() ([]IPodTrackInfo, error) {
 			DateAdded:    dateAdded,
 			Size:         int(t.Size),
 			Type:         mediaTypeString(t.MediaType),
+			Format:       format,
 			BookmarkTime: int(t.BookmarkTime),
 		})
 	}

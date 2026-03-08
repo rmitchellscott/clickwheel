@@ -328,6 +328,15 @@ func filetypeLookup(key string) uint32 {
 	return filetypeCodes["mp3"]
 }
 
+func filetypeFromCode(code uint32) string {
+	for key, c := range filetypeCodes {
+		if c == code && key != "aiff" {
+			return key
+		}
+	}
+	return ""
+}
+
 func codecHint(filetype string) uint16 {
 	switch filetype {
 	case "wav", "aif", "aiff":

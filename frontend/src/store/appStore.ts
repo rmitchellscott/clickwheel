@@ -72,6 +72,7 @@ export interface IPodTrack {
   dateAdded: number
   size: number
   type: 'music' | 'audiobook' | 'podcast'
+  format: string
 }
 
 export interface IPodPlaylist {

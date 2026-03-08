@@ -108,6 +108,7 @@ func parseTrack(data []byte, offset uint32) (*Track, uint32) {
 
 	if hl > 0x1C {
 		t.FileType = le32(d, 0x18)
+		t.FiletypeKey = filetypeFromCode(t.FileType)
 	}
 	if hl > 0x1F {
 		if d[0x1C] != 0 {

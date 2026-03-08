@@ -24,9 +24,13 @@ var audioExts = map[string]bool{
 	".aac": true, ".wma": true,
 }
 
+var lossyCompatible = map[string]bool{
+	"mp3": true, "m4a": true, "aac": true, "m4b": true,
+}
+
 func formatExt(format string) string {
 	switch format {
-	case "aac":
+	case "aac", "alac":
 		return ".m4a"
 	case "opus":
 		return ".opus"
@@ -39,7 +43,7 @@ func formatExt(format string) string {
 
 func formatFileType(format string) string {
 	switch format {
-	case "aac":
+	case "aac", "alac":
 		return "m4a"
 	default:
 		return format
@@ -68,7 +72,9 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 		bitRate = 256
 	}
 	ext := formatExt(format)
-	needsXcode := item.Suffix != format && !(item.Suffix == "m4a" && format == "aac")
+	needsXcode := !lossyCompatible[item.Suffix] &&
+		item.Suffix != format &&
+		!(item.Suffix == "m4a" && format == "aac")
 
 	tmpDir, err := os.MkdirTemp("", "clickwheel-")
 	if err != nil {
@@ -103,6 +109,7 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 		}
 	} else {
 		finalPath = srcPath
+		ext = "." + item.Suffix
 	}
 
 	data, err := os.ReadFile(finalPath)
@@ -127,7 +134,28 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 	if bitRate <= 0 {
 		bitRate = 256
 	}
+
+	item := p.item
+	keptOriginal := lossyCompatible[item.Suffix] &&
+		item.Suffix != format &&
+		!(item.Suffix == "m4a" && format == "aac")
+
 	ext := formatExt(format)
+	fileType := formatFileType(format)
+	trackBitRate := uint32(bitRate)
+	if keptOriginal {
+		ext = "." + item.Suffix
+		fileType = formatFileType(item.Suffix)
+		if item.Duration > 0 {
+			trackBitRate = uint32(len(p.data)) * 8 / uint32(item.Duration) / 1000
+		}
+	} else if format == "alac" {
+		if item.Duration > 0 {
+			trackBitRate = uint32(len(p.data)) * 8 / uint32(item.Duration) / 1000
+		} else {
+			trackBitRate = 800
+		}
+	}
 
 	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
@@ -137,7 +165,6 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		return err
 	}
 
-	item := p.item
 	track := &itunesdb.Track{
 		UniqueID:    rand.Uint32(),
 		Title:       item.Title,
@@ -149,9 +176,9 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		Year:        uint16(item.Year),
 		Duration:    uint32(item.Duration * 1000),
 		Size:        uint32(len(p.data)),
-		BitRate:     uint32(bitRate),
+		BitRate:     trackBitRate,
 		SampleRate:  44100,
-		FiletypeKey: formatFileType(format),
+		FiletypeKey: fileType,
 		MediaType:   itunesdb.MediaTypeMusic,
 		SourceID:    item.SourceID,
 	}

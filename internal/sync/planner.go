@@ -101,9 +101,15 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 		wantedIDs[song.ID] = true
 		if !existingIDs[song.ID] {
 			size := song.Size
-			needsTranscode := song.Suffix != targetFormat && !(song.Suffix == "m4a" && targetFormat == "aac")
+			needsTranscode := !lossyCompatible[song.Suffix] &&
+				song.Suffix != targetFormat &&
+				!(song.Suffix == "m4a" && targetFormat == "aac")
 			if needsTranscode && song.Duration > 0 {
-				size = int64(song.Duration) * int64(targetBitRate) * 1000 / 8
+				if targetFormat == "alac" {
+					size = int64(song.Duration) * 800 * 1000 / 8
+				} else {
+					size = int64(song.Duration) * int64(targetBitRate) * 1000 / 8
+				}
 			}
 			plan.AddTracks = append(plan.AddTracks, TrackItem{
 				SourceID: song.ID,
