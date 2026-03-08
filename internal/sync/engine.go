@@ -205,7 +205,7 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 	}
 	for _, b := range plan.AddBooks {
 		summary.AddBooks = append(summary.AddBooks, PlanSummaryItem{
-			Title: b.Title, Artist: b.Author,
+			Title: b.Title, Artist: b.Author, Size: b.Size,
 		})
 	}
 	for _, p := range plan.AddPodcasts {
@@ -249,8 +249,28 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 	}
 
 	if e.device.SyncSettings.SyncBookPosition && e.abs != nil {
+		type splitPreviewGroup struct {
+			bookTitle string
+			tracks    []*itunesdb.Track
+			parts     []config.BookSplitPart
+		}
+		splitGroups := make(map[string]*splitPreviewGroup)
+		seenBooks := make(map[string]bool)
+
 		for _, track := range dev.DB.Tracks {
 			if track.SourceID == "" || track.MediaType != itunesdb.MediaTypeAudiobook {
+				continue
+			}
+
+			bookID, _, isSplit := splitBookSourceID(track.SourceID)
+			if isSplit {
+				g, ok := splitGroups[bookID]
+				if !ok {
+					info := e.device.SyncState.BookSplits[bookID]
+					g = &splitPreviewGroup{bookTitle: track.Album, parts: info.Parts}
+					splitGroups[bookID] = g
+				}
+				g.tracks = append(g.tracks, track)
 				continue
 			}
 
@@ -259,22 +279,58 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 				continue
 			}
 
-			ipodSec := math.Round(float64(track.BookmarkTime) / 1000.0)
+			ipodTime := float64(track.BookmarkTime) / 1000.0
+			prev := e.device.SyncState.BookmarkStates[track.SourceID]
 
+			absTime := 0.0
 			if progress != nil {
-				absSec := math.Round(progress.CurrentTime)
-				if ipodSec == absSec {
-					continue
-				}
-				ipodUnix := int64(track.LastPlayed) - itunesdb.MacEpochDelta
-				absUnix := progress.LastUpdate / 1000
-				if track.LastPlayed != 0 && ipodUnix > absUnix {
-					summary.BooksFromIPod = append(summary.BooksFromIPod, track.Title)
-				} else {
-					summary.BooksToIPod = append(summary.BooksToIPod, track.Title)
-				}
-			} else if ipodSec > 0 {
+				absTime = progress.CurrentTime
+			}
+
+			ipodChanged := math.Round(ipodTime) != math.Round(prev.CurrentTime)
+			absChanged := progress != nil && math.Round(absTime) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+			if !ipodChanged && !absChanged {
+				continue
+			}
+
+			if ipodChanged && (!absChanged || ipodTime > absTime) {
 				summary.BooksFromIPod = append(summary.BooksFromIPod, track.Title)
+			} else if absChanged {
+				summary.BooksToIPod = append(summary.BooksToIPod, track.Title)
+			}
+		}
+
+		for bookID, g := range splitGroups {
+			if seenBooks[bookID] || len(g.parts) == 0 {
+				continue
+			}
+			seenBooks[bookID] = true
+
+			progress, err := e.abs.GetProgress(bookID)
+			if err != nil {
+				continue
+			}
+
+			ipodGlobal := splitBookGlobalPosition(g.tracks, g.parts)
+			prev := e.device.SyncState.BookmarkStates[bookID]
+
+			absGlobal := 0.0
+			if progress != nil {
+				absGlobal = progress.CurrentTime
+			}
+
+			ipodChanged := math.Round(ipodGlobal) != math.Round(prev.CurrentTime)
+			absChanged := progress != nil && math.Round(absGlobal) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+			if !ipodChanged && !absChanged {
+				continue
+			}
+
+			if ipodChanged && (!absChanged || ipodGlobal > absGlobal) {
+				summary.BooksFromIPod = append(summary.BooksFromIPod, g.bookTitle)
+			} else if absChanged {
+				summary.BooksToIPod = append(summary.BooksToIPod, g.bookTitle)
 			}
 		}
 	}
@@ -295,20 +351,25 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 				continue
 			}
 
-			ipodSec := math.Round(float64(track.BookmarkTime) / 1000.0)
+			ipodTime := float64(track.BookmarkTime) / 1000.0
+			prev := e.device.SyncState.BookmarkStates[track.SourceID]
 
+			absTime := 0.0
 			if progress != nil {
-				absSec := math.Round(progress.CurrentTime)
-				if ipodSec == absSec {
-					continue
-				}
-				if ipodSec > absSec {
-					summary.PodcastsFromIPod = append(summary.PodcastsFromIPod, track.Title)
-				} else {
-					summary.PodcastsToIPod = append(summary.PodcastsToIPod, track.Title)
-				}
-			} else if ipodSec > 0 {
+				absTime = progress.CurrentTime
+			}
+
+			ipodChanged := math.Round(ipodTime) != math.Round(prev.CurrentTime)
+			absChanged := progress != nil && math.Round(absTime) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+			if !ipodChanged && !absChanged {
+				continue
+			}
+
+			if ipodChanged && (!absChanged || ipodTime > absTime) {
 				summary.PodcastsFromIPod = append(summary.PodcastsFromIPod, track.Title)
+			} else if absChanged {
+				summary.PodcastsToIPod = append(summary.PodcastsToIPod, track.Title)
 			}
 		}
 	}
@@ -426,38 +487,135 @@ func (e *Engine) syncBookmarks(ctx context.Context, dev *ipod.Device, onProgress
 	}
 	onProgress(Progress{Phase: "bookmarks", Message: "Syncing audiobook progress..."})
 
+	type splitGroup struct {
+		tracks []*itunesdb.Track
+		parts  []config.BookSplitPart
+	}
+	splitBooks := make(map[string]*splitGroup)
+
 	for _, track := range dev.DB.Tracks {
 		if track.SourceID == "" || track.MediaType != itunesdb.MediaTypeAudiobook {
 			continue
 		}
 
-		progress, err := e.abs.GetProgress(track.SourceID)
+		bookID, _, isSplit := splitBookSourceID(track.SourceID)
+		if !isSplit {
+			e.syncSingleBookmark(track)
+			continue
+		}
+
+		g, ok := splitBooks[bookID]
+		if !ok {
+			info := e.device.SyncState.BookSplits[bookID]
+			g = &splitGroup{parts: info.Parts}
+			splitBooks[bookID] = g
+		}
+		g.tracks = append(g.tracks, track)
+	}
+
+	for bookID, g := range splitBooks {
+		parts := g.parts
+		if len(parts) == 0 {
+			log.Printf("[bookmarks] no split info for %s, skipping", bookID)
+			continue
+		}
+
+		progress, err := e.abs.GetProgress(bookID)
 		if err != nil {
 			continue
 		}
 
-		ipodSec := math.Round(float64(track.BookmarkTime) / 1000.0)
+		ipodGlobal := splitBookGlobalPosition(g.tracks, parts)
+		prev := e.device.SyncState.BookmarkStates[bookID]
 
+		absGlobal := 0.0
+		absDuration := parts[len(parts)-1].EndSec
 		if progress != nil {
-			absSec := math.Round(progress.CurrentTime)
-			if ipodSec == absSec {
-				continue
-			}
-			ipodUnix := int64(track.LastPlayed) - itunesdb.MacEpochDelta
-			absUnix := progress.LastUpdate / 1000
-			if track.LastPlayed != 0 && ipodUnix > absUnix {
-				if err := e.abs.UpdateProgress(track.SourceID, float64(track.BookmarkTime)/1000.0, progress.Duration); err != nil {
-					continue
-				}
-			} else {
-				track.BookmarkTime = uint32(progress.CurrentTime * 1000)
-			}
-		} else if ipodSec > 0 {
-			_ = e.abs.UpdateProgress(track.SourceID, float64(track.BookmarkTime)/1000.0, float64(track.Duration)/1000.0)
+			absGlobal = progress.CurrentTime
+			absDuration = progress.Duration
+		}
+
+		ipodChanged := math.Round(ipodGlobal) != math.Round(prev.CurrentTime)
+		absChanged := progress != nil && math.Round(absGlobal) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+		if ipodChanged && (!absChanged || ipodGlobal > absGlobal) {
+			_ = e.abs.UpdateProgress(bookID, ipodGlobal, absDuration)
+		} else if absChanged {
+			distributePositionToParts(g.tracks, parts, absGlobal)
+		}
+
+		e.device.SyncState.BookmarkStates[bookID] = config.PositionSyncState{
+			CurrentTime: splitBookGlobalPosition(g.tracks, parts),
+			LastSync:    time.Now().Unix(),
 		}
 	}
 
 	return nil
+}
+
+func splitBookGlobalPosition(tracks []*itunesdb.Track, parts []config.BookSplitPart) float64 {
+	var best float64
+	for _, t := range tracks {
+		if t.BookmarkTime == 0 {
+			continue
+		}
+		_, idx, _ := splitBookSourceID(t.SourceID)
+		if idx >= len(parts) {
+			continue
+		}
+		global := parts[idx].StartSec + float64(t.BookmarkTime)/1000.0
+		if global > best {
+			best = global
+		}
+	}
+	return best
+}
+
+func distributePositionToParts(tracks []*itunesdb.Track, parts []config.BookSplitPart, globalSec float64) {
+	for _, t := range tracks {
+		_, partIdx, _ := splitBookSourceID(t.SourceID)
+		if partIdx >= len(parts) {
+			continue
+		}
+		part := parts[partIdx]
+		if globalSec >= part.StartSec && globalSec < part.EndSec {
+			t.BookmarkTime = uint32((globalSec - part.StartSec) * 1000)
+		} else if globalSec >= part.EndSec {
+			t.BookmarkTime = uint32((part.EndSec - part.StartSec) * 1000)
+		} else {
+			t.BookmarkTime = 0
+		}
+	}
+}
+
+func (e *Engine) syncSingleBookmark(track *itunesdb.Track) {
+	progress, err := e.abs.GetProgress(track.SourceID)
+	if err != nil {
+		return
+	}
+
+	ipodTime := float64(track.BookmarkTime) / 1000.0
+	prev := e.device.SyncState.BookmarkStates[track.SourceID]
+
+	if progress != nil {
+		absTime := progress.CurrentTime
+
+		ipodChanged := math.Round(ipodTime) != math.Round(prev.CurrentTime)
+		absChanged := math.Round(absTime) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+		if ipodChanged && (!absChanged || ipodTime > absTime) {
+			_ = e.abs.UpdateProgress(track.SourceID, ipodTime, progress.Duration)
+		} else if absChanged {
+			track.BookmarkTime = uint32(absTime * 1000)
+		}
+	} else if ipodTime > 0 {
+		_ = e.abs.UpdateProgress(track.SourceID, ipodTime, float64(track.Duration)/1000.0)
+	}
+
+	e.device.SyncState.BookmarkStates[track.SourceID] = config.PositionSyncState{
+		CurrentTime: float64(track.BookmarkTime) / 1000.0,
+		LastSync:    time.Now().Unix(),
+	}
 }
 
 func splitPodcastSourceID(sourceID string) (itemID, episodeID string) {
@@ -489,22 +647,29 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 			continue
 		}
 
-		ipodSec := math.Round(float64(track.BookmarkTime) / 1000.0)
+		ipodTime := float64(track.BookmarkTime) / 1000.0
+		prev := e.device.SyncState.BookmarkStates[track.SourceID]
 
 		if progress != nil {
-			absSec := math.Round(progress.CurrentTime)
-			if ipodSec == absSec {
-				continue
-			}
-			if ipodSec > absSec {
+			absTime := progress.CurrentTime
+
+			ipodChanged := math.Round(ipodTime) != math.Round(prev.CurrentTime)
+			absChanged := math.Round(absTime) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
+
+			if ipodChanged && (!absChanged || ipodTime > absTime) {
 				if e.device.SyncSettings.TwoWayPodcastSync {
-					_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, float64(track.BookmarkTime)/1000.0, progress.Duration)
+					_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, progress.Duration)
 				}
-			} else {
-				track.BookmarkTime = uint32(progress.CurrentTime * 1000)
+			} else if absChanged {
+				track.BookmarkTime = uint32(absTime * 1000)
 			}
-		} else if ipodSec > 0 && e.device.SyncSettings.TwoWayPodcastSync {
-			_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, float64(track.BookmarkTime)/1000.0, float64(track.Duration)/1000.0)
+		} else if ipodTime > 0 && e.device.SyncSettings.TwoWayPodcastSync {
+			_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, float64(track.Duration)/1000.0)
+		}
+
+		e.device.SyncState.BookmarkStates[track.SourceID] = config.PositionSyncState{
+			CurrentTime: float64(track.BookmarkTime) / 1000.0,
+			LastSync:    time.Now().Unix(),
 		}
 	}
 
@@ -518,11 +683,27 @@ func (e *Engine) buildPlan(ctx context.Context, dev *ipod.Device, onProgress Pro
 
 func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPlan, onProgress ProgressFunc) error {
 	allRemovals := append(append(plan.RemoveTracks, plan.RemoveBooks...), plan.RemovePodcasts...)
+	removedBaseBooks := make(map[string]bool)
 	for _, id := range allRemovals {
 		removed := dev.DB.RemoveTrack(id)
 		if removed != nil && removed.Path != "" {
 			absPath := ipod.FromiPodPath(dev.Info.MountPoint, removed.Path)
 			os.Remove(absPath)
+		}
+		if baseID, _, isSplit := splitBookSourceID(id); isSplit {
+			removedBaseBooks[baseID] = true
+		}
+	}
+	for baseID := range removedBaseBooks {
+		hasRemaining := false
+		for _, t := range dev.DB.Tracks {
+			if tb, _, ts := splitBookSourceID(t.SourceID); ts && tb == baseID {
+				hasRemaining = true
+				break
+			}
+		}
+		if !hasRemaining {
+			delete(e.device.SyncState.BookSplits, baseID)
 		}
 	}
 
@@ -532,7 +713,11 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 		totalBytes += t.Size
 	}
 	for _, b := range plan.AddBooks {
-		totalBytes += int64(b.Duration * 64 * 1000 / 8)
+		if b.Size > 0 {
+			totalBytes += b.Size
+		} else {
+			totalBytes += int64(b.Duration * 64 * 1000 / 8)
+		}
 	}
 	for _, p := range plan.AddPodcasts {
 		totalBytes += p.Size
@@ -633,6 +818,12 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			})
 		}); err != nil {
 			return err
+		}
+		if item.SplitParts != nil {
+			e.device.SyncState.BookSplits[item.SourceID] = config.BookSplitInfo{
+				SplitHoursLimit: e.device.SyncSettings.SplitHoursLimit,
+				Parts:           item.SplitParts,
+			}
 		}
 		tracker.record(bookSizeEst, time.Since(itemStart))
 	}

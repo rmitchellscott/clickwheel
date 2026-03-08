@@ -82,6 +82,24 @@ func (c *Client) GetBooks(libraryID string) ([]Book, error) {
 	return br.Results, nil
 }
 
+func (c *Client) GetBook(itemID string) (*Book, error) {
+	resp, err := c.doRequest("GET", "/api/items/"+itemID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get book failed: %s", resp.Status)
+	}
+
+	var b Book
+	if err := json.NewDecoder(resp.Body).Decode(&b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (c *Client) GetPodcasts(libraryID string) ([]Podcast, error) {
 	resp, err := c.doRequest("GET", "/api/libraries/"+libraryID+"/items", nil)
 	if err != nil {

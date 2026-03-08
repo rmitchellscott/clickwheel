@@ -33,11 +33,13 @@ type TrackItem struct {
 }
 
 type BookItem struct {
-	SourceID string
-	Title    string
-	Author   string
-	Duration float64
-	Chapters []audiobookshelf.Chapter
+	SourceID   string
+	Title      string
+	Author     string
+	Duration   float64
+	Size       int64
+	Chapters   []audiobookshelf.Chapter
+	SplitParts []config.BookSplitPart
 }
 
 type PodcastEpisodeItem struct {
@@ -118,7 +120,7 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 		}
 	}
 
-	if sub!= nil {
+	if sub != nil {
 		playlists, err := sub.GetPlaylists()
 		if err != nil {
 			return nil, err
@@ -242,20 +244,66 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 			}
 			log.Printf("[plan] ABS library %q: %d books", lib.Name, len(books))
 
+			splitEnabled := cfg.SyncSettings.SplitLongBooks
+			splitLimit := cfg.SyncSettings.SplitHoursLimit
+			if splitLimit <= 0 {
+				splitLimit = 8
+			}
+
 			for _, book := range books {
 				if !includedBooks[book.ID] {
 					continue
 				}
 
-				wantedIDs[book.ID] = true
-				if !existingIDs[book.ID] {
-					plan.AddBooks = append(plan.AddBooks, BookItem{
-						SourceID: book.ID,
-						Title:    book.Media.Metadata.Title,
-						Author:   book.Media.Metadata.Author,
-						Duration: book.Media.Duration,
-						Chapters: book.Media.Chapters,
-					})
+				chapters := book.Media.Chapters
+				duration := book.Media.Duration
+				if splitEnabled && len(chapters) == 0 {
+					detail, err := abs.GetBook(book.ID)
+					if err == nil && detail != nil {
+						chapters = detail.Media.Chapters
+						if detail.Media.Duration > 0 {
+							duration = detail.Media.Duration
+						}
+					}
+				}
+
+				var splitParts []config.BookSplitPart
+				if splitEnabled {
+					splitParts = computeBookSplitPlan(chapters, duration, splitLimit)
+				}
+
+				if splitParts != nil {
+					existingSplit := cfg.SyncState.BookSplits[book.ID]
+					partsMatch := len(existingSplit.Parts) == len(splitParts) && existingSplit.SplitHoursLimit == splitLimit
+
+					for _, p := range splitParts {
+						sid := bookPartSourceID(book.ID, p.Index)
+						wantedIDs[sid] = true
+						if !existingIDs[sid] || !partsMatch {
+							plan.AddBooks = append(plan.AddBooks, BookItem{
+								SourceID:   book.ID,
+								Title:      book.Media.Metadata.Title,
+								Author:     book.Media.Metadata.Author,
+								Duration:   duration,
+								Size:       book.Size,
+								Chapters:   chapters,
+								SplitParts: splitParts,
+							})
+							break
+						}
+					}
+				} else {
+					wantedIDs[book.ID] = true
+					if !existingIDs[book.ID] {
+						plan.AddBooks = append(plan.AddBooks, BookItem{
+							SourceID: book.ID,
+							Title:    book.Media.Metadata.Title,
+							Author:   book.Media.Metadata.Author,
+							Duration: book.Media.Duration,
+							Size:     book.Size,
+							Chapters: book.Media.Chapters,
+						})
+					}
 				}
 			}
 		}

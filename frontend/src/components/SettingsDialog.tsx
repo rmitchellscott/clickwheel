@@ -50,7 +50,8 @@ const sections: { key: Section; label: string }[] = [
 ]
 
 export function SettingsDialog() {
-  const { settingsOpen, setSettingsOpen, setSubsonicConfigured, setSubsonicConnected, setAbsConfigured, setAbsConnected } = useAppStore()
+  const { settingsOpen, setSettingsOpen, setSubsonicConfigured, setSubsonicConnected, setAbsConfigured, setAbsConnected, ipod, activeDeviceId, knownDevices } = useAppStore()
+  const activeDevice = knownDevices.find(d => d.deviceId === activeDeviceId)
 
   const [activeSection, setActiveSection] = useState<Section>('general')
 
@@ -180,7 +181,12 @@ export function SettingsDialog() {
       <div className="absolute inset-0 bg-black/50" onClick={() => setSettingsOpen(false)} />
       <div className="relative bg-card rounded-xl shadow-xl border w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Settings</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Settings</h2>
+            {(ipod || activeDevice) && (
+              <p className="text-sm text-muted-foreground">{ipod?.name ?? activeDevice?.name}</p>
+            )}
+          </div>
           <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(false)}>
             <X className="h-4 w-4" />
           </Button>

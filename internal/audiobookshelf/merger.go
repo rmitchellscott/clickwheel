@@ -68,7 +68,7 @@ func MergeToM4B(ctx context.Context, inputFiles []string, chapters []Chapter, ou
 		"-y", outputPath,
 	)
 
-	return runFFmpeg(ctx, args, dir)
+	return RunFFmpeg(ctx, args, dir)
 }
 
 func transcodeSingle(ctx context.Context, input, output string) error {
@@ -80,10 +80,10 @@ func transcodeSingle(ctx context.Context, input, output string) error {
 		"-movflags", "+faststart",
 		"-y", output,
 	}
-	return runFFmpeg(ctx, args, dir)
+	return RunFFmpeg(ctx, args, dir)
 }
 
-func runFFmpeg(ctx context.Context, args []string, workDir string) error {
+func RunFFmpeg(ctx context.Context, args []string, workDir string) error {
 	if nativeFFmpeg != "" {
 		return runNativeFFmpeg(ctx, args)
 	}

@@ -23,9 +23,27 @@ type TrackSyncState struct {
 	LastSync  int64 `json:"lastSync"`
 }
 
+type BookSplitPart struct {
+	Index    int     `json:"index"`
+	StartSec float64 `json:"startSec"`
+	EndSec   float64 `json:"endSec"`
+}
+
+type BookSplitInfo struct {
+	SplitHoursLimit int             `json:"splitHoursLimit"`
+	Parts           []BookSplitPart `json:"parts"`
+}
+
+type PositionSyncState struct {
+	CurrentTime float64 `json:"currentTime"`
+	LastSync    int64   `json:"lastSync"`
+}
+
 type SyncState struct {
-	TrackPlayCounts map[string]TrackSyncState `json:"trackPlayCounts"`
-	TransferRate    float64                   `json:"transferRate,omitempty"`
+	TrackPlayCounts map[string]TrackSyncState    `json:"trackPlayCounts"`
+	BookSplits      map[string]BookSplitInfo     `json:"bookSplits,omitempty"`
+	BookmarkStates  map[string]PositionSyncState `json:"bookmarkStates,omitempty"`
+	TransferRate    float64                      `json:"transferRate,omitempty"`
 }
 
 type Inclusions struct {
@@ -177,6 +195,12 @@ func loadDeviceFrom(path string) (*DeviceConfig, error) {
 	cfg.path = path
 	if cfg.SyncState.TrackPlayCounts == nil {
 		cfg.SyncState.TrackPlayCounts = make(map[string]TrackSyncState)
+	}
+	if cfg.SyncState.BookSplits == nil {
+		cfg.SyncState.BookSplits = make(map[string]BookSplitInfo)
+	}
+	if cfg.SyncState.BookmarkStates == nil {
+		cfg.SyncState.BookmarkStates = make(map[string]PositionSyncState)
 	}
 	return cfg, nil
 }

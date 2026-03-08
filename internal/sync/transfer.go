@@ -175,70 +175,83 @@ func bookCacheDir() (string, error) {
 }
 
 func TransferBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item BookItem, onStep func(string)) error {
+	m4bPath, err := ensureBookM4B(ctx, abs, item, onStep)
+	if err != nil {
+		return err
+	}
+
+	if item.SplitParts != nil {
+		return transferSplitBook(ctx, abs, dev, item, m4bPath, onStep)
+	}
+	return transferWholeBook(ctx, abs, dev, item, m4bPath, onStep)
+}
+
+func ensureBookM4B(ctx context.Context, abs *audiobookshelf.Client, item BookItem, onStep func(string)) (string, error) {
 	cacheDir, _ := bookCacheDir()
 	cachedPath := ""
 	if cacheDir != "" {
 		cachedPath = filepath.Join(cacheDir, item.SourceID+".m4b")
 	}
 
-	var finalPath string
 	if cachedPath != "" {
 		if _, err := os.Stat(cachedPath); err == nil {
 			onStep("Using cached")
-			finalPath = cachedPath
+			return cachedPath, nil
 		}
 	}
 
-	if finalPath == "" {
-		tmpDir, err := os.MkdirTemp("", "clickwheel-book-")
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(tmpDir)
+	tmpDir, err := os.MkdirTemp("", "clickwheel-book-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
 
-		zipPath := filepath.Join(tmpDir, "book.zip")
-		zipFile, err := os.Create(zipPath)
-		if err != nil {
-			return err
-		}
+	zipPath := filepath.Join(tmpDir, "book.zip")
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		return "", err
+	}
 
-		if err := abs.DownloadFile(item.SourceID, zipFile); err != nil {
-			zipFile.Close()
-			return fmt.Errorf("downloading %s: %w", item.Title, err)
-		}
+	if err := abs.DownloadFile(item.SourceID, zipFile); err != nil {
 		zipFile.Close()
+		return "", fmt.Errorf("downloading %s: %w", item.Title, err)
+	}
+	zipFile.Close()
 
-		onStep("Extracting")
-		audioFiles, err := extractAudioFromZip(zipPath, tmpDir)
-		if err != nil {
-			return fmt.Errorf("extracting %s: %w", item.Title, err)
-		}
-		if len(audioFiles) == 0 {
-			return fmt.Errorf("no audio files found in download for %s", item.Title)
-		}
-
-		onStep("Transcoding")
-		transcodedPath := filepath.Join(tmpDir, "book.m4b")
-		if err := audiobookshelf.MergeToM4B(ctx, audioFiles, item.Chapters, transcodedPath); err != nil {
-			return fmt.Errorf("converting %s: %w", item.Title, err)
-		}
-		finalPath = transcodedPath
-
-		if cachedPath != "" {
-			data, err := os.ReadFile(finalPath)
-			if err == nil {
-				_ = os.WriteFile(cachedPath, data, 0644)
-			}
-		}
+	onStep("Extracting")
+	audioFiles, err := extractAudioFromZip(zipPath, tmpDir)
+	if err != nil {
+		return "", fmt.Errorf("extracting %s: %w", item.Title, err)
+	}
+	if len(audioFiles) == 0 {
+		return "", fmt.Errorf("no audio files found in download for %s", item.Title)
 	}
 
+	onStep("Transcoding")
+	transcodedPath := filepath.Join(tmpDir, "book.m4b")
+	if err := audiobookshelf.MergeToM4B(ctx, audioFiles, item.Chapters, transcodedPath); err != nil {
+		return "", fmt.Errorf("converting %s: %w", item.Title, err)
+	}
+
+	if cachedPath != "" {
+		data, err := os.ReadFile(transcodedPath)
+		if err == nil {
+			_ = os.WriteFile(cachedPath, data, 0644)
+		}
+		return cachedPath, nil
+	}
+
+	return transcodedPath, nil
+}
+
+func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item BookItem, m4bPath string, onStep func(string)) error {
 	onStep("Copying to iPod")
 	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(finalPath)
+	data, err := os.ReadFile(m4bPath)
 	if err != nil {
 		return err
 	}
@@ -276,6 +289,88 @@ func TransferBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Dev
 	}
 
 	dev.DB.AddTrack(track)
+	return nil
+}
+
+func splitM4BPart(ctx context.Context, sourcePath string, startSec, endSec float64, workDir string, index int) (string, error) {
+	outPath := filepath.Join(workDir, fmt.Sprintf("part_%d.m4b", index))
+	args := []string{
+		"-i", sourcePath,
+		"-ss", fmt.Sprintf("%.3f", startSec),
+		"-to", fmt.Sprintf("%.3f", endSec),
+		"-c:a", "copy",
+		"-vn",
+		"-movflags", "+faststart",
+		"-y", outPath,
+	}
+	if err := audiobookshelf.RunFFmpeg(ctx, args, workDir); err != nil {
+		return "", fmt.Errorf("splitting part %d: %w", index, err)
+	}
+	return outPath, nil
+}
+
+func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item BookItem, m4bPath string, onStep func(string)) error {
+	workDir, err := os.MkdirTemp("", "clickwheel-split-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(workDir)
+
+	var globalBookmarkSec float64
+	progress, err := abs.GetProgress(item.SourceID)
+	if err == nil && progress != nil {
+		globalBookmarkSec = progress.CurrentTime
+	}
+
+	totalParts := len(item.SplitParts)
+	for _, part := range item.SplitParts {
+		onStep(fmt.Sprintf("Splitting part %d of %d", part.Index+1, totalParts))
+
+		partPath, err := splitM4BPart(ctx, m4bPath, part.StartSec, part.EndSec, workDir, part.Index)
+		if err != nil {
+			return err
+		}
+
+		data, err := os.ReadFile(partPath)
+		if err != nil {
+			return err
+		}
+
+		destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b")
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(destPath, data, 0644); err != nil {
+			return err
+		}
+
+		partDurationMs := uint32((part.EndSec - part.StartSec) * 1000)
+		var bookmarkTime uint32
+		if globalBookmarkSec >= part.StartSec && globalBookmarkSec < part.EndSec {
+			bookmarkTime = uint32((globalBookmarkSec - part.StartSec) * 1000)
+		}
+
+		track := &itunesdb.Track{
+			UniqueID:          rand.Uint32(),
+			Title:             fmt.Sprintf("%s - Part %d of %d", item.Title, part.Index+1, totalParts),
+			Artist:            item.Author,
+			Album:             item.Title,
+			Path:              ipod.ToiPodPath(dev.Info.MountPoint, destPath),
+			Duration:          partDurationMs,
+			Size:              uint32(len(data)),
+			FiletypeKey:       "m4b",
+			BitRate:           64,
+			SampleRate:        44100,
+			MediaType:         itunesdb.MediaTypeAudiobook,
+			RememberPosition:  1,
+			SkipWhenShuffling: 1,
+			BookmarkTime:      bookmarkTime,
+			SourceID:          bookPartSourceID(item.SourceID, part.Index),
+		}
+
+		dev.DB.AddTrack(track)
+	}
+
 	return nil
 }
 
