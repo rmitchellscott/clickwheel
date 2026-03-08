@@ -21,7 +21,8 @@ import (
 
 type App struct {
 	ctx        context.Context
-	cfg        *config.Config
+	host       *config.HostConfig
+	device     *config.DeviceConfig
 	subClient  *subsonic.Client
 	absClient  *audiobookshelf.Client
 	cancelSync context.CancelFunc
@@ -33,21 +34,42 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	cfg, err := config.Load()
+	host, err := config.LoadHost()
 	if err != nil {
-		cfg = config.Default()
+		host = config.DefaultHost()
 	}
-	a.cfg = cfg
+	a.host = host
+
+	if a.host.LastDeviceID != "" {
+		if devCfg, err := config.LoadDeviceFromBackup(a.host.LastDeviceID); err == nil {
+			a.device = devCfg
+		}
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	if a.cfg != nil {
-		_ = a.cfg.Save()
+	if a.host != nil {
+		_ = a.host.Save()
 	}
 }
 
-func (a *App) GetConfig() *config.Config {
-	return a.cfg
+type MergedConfig struct {
+	Subsonic     config.SubsonicConfig `json:"subsonic"`
+	ABS          config.ABSConfig      `json:"abs"`
+	SyncSettings config.SyncSettings   `json:"syncSettings"`
+	Inclusions   config.Inclusions     `json:"inclusions"`
+}
+
+func (a *App) GetConfig() *MergedConfig {
+	mc := &MergedConfig{
+		Subsonic: a.host.Subsonic,
+		ABS:      a.host.ABS,
+	}
+	if a.device != nil {
+		mc.SyncSettings = a.device.SyncSettings
+		mc.Inclusions = a.device.Inclusions
+	}
+	return mc
 }
 
 func (a *App) GetTimezone() string {
@@ -67,26 +89,40 @@ func (a *App) GetTimezone() string {
 }
 
 func (a *App) SaveSubsonicConfig(serverURL, username, password string) error {
-	a.cfg.Subsonic.ServerURL = serverURL
-	a.cfg.Subsonic.Username = username
-	a.cfg.Subsonic.Password = password
+	a.host.Subsonic.ServerURL = serverURL
+	a.host.Subsonic.Username = username
+	a.host.Subsonic.Password = password
 	a.subClient = subsonic.NewClient(serverURL, username, password)
-	return a.cfg.Save()
+	if err := a.host.Save(); err != nil {
+		return err
+	}
+	if a.device != nil {
+		a.device.Servers.SubsonicURL = serverURL
+		return a.saveDevice()
+	}
+	return nil
 }
 
 func (a *App) SaveABSConfig(serverURL, token string) error {
-	a.cfg.ABS.ServerURL = serverURL
-	a.cfg.ABS.Token = token
+	a.host.ABS.ServerURL = serverURL
+	a.host.ABS.Token = token
 	a.absClient = audiobookshelf.NewClient(serverURL, token)
-	return a.cfg.Save()
+	if err := a.host.Save(); err != nil {
+		return err
+	}
+	if a.device != nil {
+		a.device.Servers.ABSURL = serverURL
+		return a.saveDevice()
+	}
+	return nil
 }
 
 func (a *App) TestSubsonicConnection() error {
 	if a.subClient == nil {
 		a.subClient = subsonic.NewClient(
-			a.cfg.Subsonic.ServerURL,
-			a.cfg.Subsonic.Username,
-			a.cfg.Subsonic.Password,
+			a.host.Subsonic.ServerURL,
+			a.host.Subsonic.Username,
+			a.host.Subsonic.Password,
 		)
 	}
 	return a.subClient.Ping()
@@ -94,13 +130,48 @@ func (a *App) TestSubsonicConnection() error {
 
 func (a *App) TestABSConnection() error {
 	if a.absClient == nil {
-		a.absClient = audiobookshelf.NewClient(a.cfg.ABS.ServerURL, a.cfg.ABS.Token)
+		a.absClient = audiobookshelf.NewClient(a.host.ABS.ServerURL, a.host.ABS.Token)
 	}
 	return a.absClient.Ping()
 }
 
 func (a *App) DetectIPod() (*ipod.DeviceInfo, error) {
-	return ipod.Detect()
+	info, err := ipod.Detect()
+	if err != nil {
+		return nil, err
+	}
+	if info == nil {
+		return nil, nil
+	}
+
+	deviceID, err := config.ResolveDeviceID(info.MountPoint, info.SerialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	devCfg, err := config.LoadDeviceConfig(info.MountPoint, deviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	devCfg.Servers.SubsonicURL = a.host.Subsonic.ServerURL
+	devCfg.Servers.ABSURL = a.host.ABS.ServerURL
+	a.device = devCfg
+
+	a.host.LastDeviceID = deviceID
+	a.host.UpdateKnownDevice(config.KnownDevice{
+		DeviceID:   deviceID,
+		Name:       info.Name,
+		Family:     info.Family,
+		Generation: info.Generation,
+		Capacity:   info.Capacity,
+		Color:      info.Color,
+		Model:      info.Model,
+		Icon:       info.Icon,
+	})
+	_ = a.host.Save()
+
+	return info, nil
 }
 
 func (a *App) EjectIPod() error {
@@ -111,7 +182,34 @@ func (a *App) EjectIPod() error {
 	if info == nil {
 		return fmt.Errorf("no iPod connected")
 	}
+	if a.device != nil {
+		_ = a.saveDevice()
+	}
 	return ipod.Eject(info.MountPoint)
+}
+
+func (a *App) GetKnownDevices() []config.KnownDevice {
+	if a.host == nil {
+		return nil
+	}
+	return a.host.KnownDevices
+}
+
+func (a *App) GetActiveDeviceID() string {
+	if a.device == nil {
+		return ""
+	}
+	return a.device.DeviceID
+}
+
+func (a *App) SwitchDevice(deviceID string) error {
+	devCfg, err := config.LoadDeviceFromBackup(deviceID)
+	if err != nil {
+		return fmt.Errorf("no backup found for device %s", deviceID)
+	}
+	a.device = devCfg
+	a.host.LastDeviceID = deviceID
+	return a.host.Save()
 }
 
 func (a *App) GetSubsonicPlaylists() ([]subsonic.Playlist, error) {
@@ -163,26 +261,55 @@ func (a *App) GetABSProgress() (map[string]audiobookshelf.MediaProgress, error) 
 	return a.absClient.GetAllProgress()
 }
 
-func (a *App) GetExclusions() config.Exclusions {
-	return a.cfg.Exclusions
+func (a *App) GetInclusions() config.Inclusions {
+	if a.device == nil {
+		return config.Inclusions{}
+	}
+	return a.device.Inclusions
 }
 
-func (a *App) SetExclusions(exclusions config.Exclusions) error {
-	a.cfg.Exclusions = exclusions
-	return a.cfg.Save()
+func (a *App) SetInclusions(inclusions config.Inclusions) error {
+	if a.device == nil {
+		return fmt.Errorf("no device connected")
+	}
+	a.device.Inclusions = inclusions
+	return a.saveDevice()
 }
 
 func (a *App) GetSyncSettings() config.SyncSettings {
-	return a.cfg.SyncSettings
+	if a.device != nil {
+		return a.device.SyncSettings
+	}
+	return config.DefaultDevice("").SyncSettings
 }
 
 func (a *App) SaveSyncSettings(settings config.SyncSettings) error {
-	a.cfg.SyncSettings = settings
-	return a.cfg.Save()
+	if a.device == nil {
+		return fmt.Errorf("no device connected")
+	}
+	a.device.SyncSettings = settings
+	return a.saveDevice()
+}
+
+func (a *App) saveDevice() error {
+	if a.device == nil {
+		return nil
+	}
+	info, err := ipod.Detect()
+	if err != nil || info == nil {
+		bp, err := config.DeviceBackupPath(a.device.DeviceID)
+		if err != nil {
+			return err
+		}
+		a.device.LastModified = time.Now().Unix()
+		a.device.SetPath(bp)
+		return a.device.Save()
+	}
+	return a.device.SaveBoth(info.MountPoint)
 }
 
 func (a *App) newSyncEngine() *sync.Engine {
-	return sync.NewEngine(a.cfg, a.subClient, a.absClient)
+	return sync.NewEngine(a.host, a.device, a.subClient, a.absClient)
 }
 
 func (a *App) PreviewSync() (*sync.PlanSummary, error) {
@@ -273,8 +400,6 @@ func (a *App) GetIPodTracks() ([]IPodTrackInfo, error) {
 	for _, t := range dev.DB.Tracks {
 		lastPlayed := int64(0)
 		if t.LastPlayed != 0 {
-			// Play Counts timestamps from iPod firmware are in local time, not UTC;
-			// correct using the timezone offset stored in the iTunesDB header
 			lastPlayed = itunesdb.FromMacTimestamp(t.LastPlayed).Add(time.Duration(-dev.DB.TZOffset) * time.Second).Unix()
 		}
 		dateAdded := int64(0)

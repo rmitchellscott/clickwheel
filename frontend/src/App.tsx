@@ -9,7 +9,7 @@ import { SyncPage } from '@/components/SyncPage'
 import { SyncProgressCard } from '@/components/SyncProgressCard'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { GetConfig, GetExclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPod, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts } from '../wailsjs/go/main/App'
+import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPod, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts, GetActiveDeviceID, GetKnownDevices } from '../wailsjs/go/main/App'
 import { useSyncEvents } from '@/hooks/useSyncEvents'
 
 function App() {
@@ -18,6 +18,14 @@ function App() {
   useSyncEvents()
 
   useEffect(() => {
+    GetActiveDeviceID().then(id => {
+      if (id) useAppStore.getState().setActiveDeviceId(id)
+    }).catch(() => {})
+
+    GetKnownDevices().then(devices => {
+      if (devices) useAppStore.getState().setKnownDevices(devices)
+    }).catch(() => {})
+
     GetConfig().then(async (cfg) => {
       const navConfigured = !!(cfg.subsonic?.serverUrl)
       const absConfigured = !!(cfg.abs?.serverUrl)
@@ -33,64 +41,9 @@ function App() {
             GetSubsonicAlbums(),
             GetSubsonicArtists(),
           ])
-          const playlists = pl || []
-          const albums = al || []
-          const artists = ar || []
-          setPlaylists(playlists)
-          setAlbums(albums)
-          setArtists(artists)
-
-          GetExclusions().then(exc => {
-            if (!exc) return
-            const exPlaylists = exc.playlists || []
-            const exAlbums = exc.albums || []
-            const exArtists = exc.artists || []
-            const exBooks = exc.books || []
-            useAppStore.setState({
-              selectedPlaylists: new Set(playlists.filter(p => !exPlaylists.includes(p.id)).map(p => p.id)),
-              selectedAlbums: new Set(albums.filter(a => !exAlbums.includes(a.id)).map(a => a.id)),
-              selectedArtists: new Set(artists.filter(a => !exArtists.includes(a.id)).map(a => a.id)),
-            })
-
-            if (absConfigured) {
-              GetABSLibraries().then(libs => {
-                if (!libs || libs.length === 0) return
-                const exPodcasts = exc.podcasts || []
-
-                for (const lib of libs) {
-                  if (lib.mediaType === 'podcast') {
-                    GetABSPodcasts(lib.id).then(pods => {
-                      const podcasts = (pods || []).map(p => ({
-                        id: p.id,
-                        title: p.media?.metadata?.title || 'Unknown',
-                        author: p.media?.metadata?.author || 'Unknown',
-                        episodeCount: p.media?.numEpisodes || 0,
-                        size: p.media?.size || 0,
-                      }))
-                      setPodcasts(podcasts)
-                      useAppStore.setState({
-                        selectedPodcasts: new Set(podcasts.filter(p => !exPodcasts.includes(p.id)).map(p => p.id)),
-                      })
-                    })
-                  } else {
-                    GetABSBooks(lib.id).then(bks => {
-                      const books = (bks || []).map(b => ({
-                        id: b.id,
-                        title: b.media?.metadata?.title || 'Unknown',
-                        author: b.media?.metadata?.authorName || 'Unknown',
-                        duration: b.media?.duration || 0,
-                        size: b.size || 0,
-                      }))
-                      setBooks(books)
-                      useAppStore.setState({
-                        selectedBooks: new Set(books.filter(b => !exBooks.includes(b.id)).map(b => b.id)),
-                      })
-                    })
-                  }
-                }
-              })
-            }
-          })
+          setPlaylists(pl || [])
+          setAlbums(al || [])
+          setArtists(ar || [])
         } catch {
           setSubsonicConnected(false)
         }
@@ -100,10 +53,49 @@ function App() {
         try {
           await TestABSConnection()
           setAbsConnected(true)
+          const libs = await GetABSLibraries()
+          if (libs && libs.length > 0) {
+            for (const lib of libs) {
+              if (lib.mediaType === 'podcast') {
+                GetABSPodcasts(lib.id).then(pods => {
+                  const podcasts = (pods || []).map(p => ({
+                    id: p.id,
+                    title: p.media?.metadata?.title || 'Unknown',
+                    author: p.media?.metadata?.author || 'Unknown',
+                    episodeCount: p.media?.numEpisodes || 0,
+                    size: p.media?.size || 0,
+                  }))
+                  setPodcasts(podcasts)
+                })
+              } else {
+                GetABSBooks(lib.id).then(bks => {
+                  const books = (bks || []).map(b => ({
+                    id: b.id,
+                    title: b.media?.metadata?.title || 'Unknown',
+                    author: b.media?.metadata?.authorName || 'Unknown',
+                    duration: b.media?.duration || 0,
+                    size: b.size || 0,
+                  }))
+                  setBooks(books)
+                })
+              }
+            }
+          }
         } catch {
           setAbsConnected(false)
         }
       }
+
+      GetInclusions().then(inc => {
+        if (!inc) return
+        useAppStore.setState({
+          includedPlaylists: new Set(inc.playlists || []),
+          includedAlbums: new Set(inc.albums || []),
+          includedArtists: new Set(inc.artists || []),
+          includedBooks: new Set(inc.books || []),
+          includedPodcasts: new Set(inc.podcasts || []),
+        })
+      })
     })
 
     GetTimezone().then(tz => {
@@ -123,6 +115,22 @@ function App() {
         const current = useAppStore.getState().ipod
         if (info && !current) {
           setIPod(info)
+          GetActiveDeviceID().then(id => {
+            if (id) useAppStore.getState().setActiveDeviceId(id)
+          }).catch(() => {})
+          GetKnownDevices().then(devices => {
+            if (devices) useAppStore.getState().setKnownDevices(devices)
+          }).catch(() => {})
+          GetInclusions().then(inc => {
+            if (!inc) return
+            useAppStore.setState({
+              includedPlaylists: new Set(inc.playlists || []),
+              includedAlbums: new Set(inc.albums || []),
+              includedArtists: new Set(inc.artists || []),
+              includedBooks: new Set(inc.books || []),
+              includedPodcasts: new Set(inc.podcasts || []),
+            })
+          }).catch(() => {})
         } else if (!info && current) {
           setIPod(null)
         }

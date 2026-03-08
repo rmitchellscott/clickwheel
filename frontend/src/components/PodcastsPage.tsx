@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Check, Podcast, X, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { SetExclusions, GetExclusions } from '../../wailsjs/go/main/App'
+import { SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
 
 type SortKey = 'title' | 'author' | 'episodes' | 'size'
 type SortDir = 'asc' | 'desc'
@@ -28,7 +28,7 @@ export function PodcastsPage() {
   const {
     absConfigured, setSettingsOpen,
     podcasts, searchQuery, setSearchQuery,
-    selectedPodcasts, togglePodcast, toggleAllPodcasts,
+    includedPodcasts, togglePodcast, toggleAllPodcasts,
   } = useAppStore()
 
   const [sortKey, setSortKey] = useState<SortKey>('title')
@@ -37,24 +37,24 @@ export function PodcastsPage() {
   const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
-    if (podcasts.length > 0 && selectedPodcasts.size > 0) {
+    if (podcasts.length > 0 && includedPodcasts.size > 0) {
       setInitialized(true)
     }
-  }, [podcasts, selectedPodcasts])
+  }, [podcasts, includedPodcasts])
 
   useEffect(() => {
     if (!initialized || podcasts.length === 0) return
     const state = useAppStore.getState()
-    GetExclusions().then(exc => {
-      SetExclusions({
-        playlists: exc?.playlists || [],
-        albums: exc?.albums || [],
-        artists: exc?.artists || [],
-        books: exc?.books || [],
-        podcasts: state.podcasts.filter(p => !state.selectedPodcasts.has(p.id)).map(p => p.id),
+    GetInclusions().then(inc => {
+      SetInclusions({
+        playlists: inc?.playlists || [],
+        albums: inc?.albums || [],
+        artists: inc?.artists || [],
+        books: inc?.books || [],
+        podcasts: [...state.includedPodcasts],
       })
     })
-  }, [selectedPodcasts, initialized])
+  }, [includedPodcasts, initialized])
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -85,12 +85,12 @@ export function PodcastsPage() {
     })
   }, [podcasts, searchQuery, sortKey, sortDir])
 
-  const allSelected = podcasts.length > 0 && podcasts.every(p => selectedPodcasts.has(p.id))
+  const allIncluded = podcasts.length > 0 && podcasts.every(p => includedPodcasts.has(p.id))
   const selectedSize = podcasts
-    .filter(p => selectedPodcasts.has(p.id))
+    .filter(p => includedPodcasts.has(p.id))
     .reduce((acc, p) => acc + p.size, 0)
   const selectedEpisodes = podcasts
-    .filter(p => selectedPodcasts.has(p.id))
+    .filter(p => includedPodcasts.has(p.id))
     .reduce((acc, p) => acc + p.episodeCount, 0)
 
   if (!absConfigured) {
@@ -124,7 +124,7 @@ export function PodcastsPage() {
         <div>
           <h2 className="text-lg font-semibold">Podcasts</h2>
           <p className="text-sm text-muted-foreground">
-            {selectedPodcasts.size} show{selectedPodcasts.size !== 1 ? 's' : ''} &middot; {selectedEpisodes} episodes &middot; {formatBytes(selectedSize)}
+            {includedPodcasts.size} show{includedPodcasts.size !== 1 ? 's' : ''} &middot; {selectedEpisodes} episodes &middot; {formatBytes(selectedSize)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -143,7 +143,7 @@ export function PodcastsPage() {
             )}
           </div>
           <Button variant="ghost" size="sm" className="w-24" onClick={toggleAllPodcasts}>
-            {allSelected ? 'Deselect All' : 'Select All'}
+            {allIncluded ? 'Deselect All' : 'Select All'}
           </Button>
         </div>
       </div>
@@ -168,14 +168,14 @@ export function PodcastsPage() {
                 onClick={() => togglePodcast(podcast.id)}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors text-left',
-                  selectedPodcasts.has(podcast.id) ? 'bg-accent/70' : 'hover:bg-accent/30'
+                  includedPodcasts.has(podcast.id) ? 'bg-accent/70' : 'hover:bg-accent/30'
                 )}
               >
                 <div className={cn(
                   'h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                  selectedPodcasts.has(podcast.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'
+                  includedPodcasts.has(podcast.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'
                 )}>
-                  {selectedPodcasts.has(podcast.id) && <Check className="h-3 w-3" />}
+                  {includedPodcasts.has(podcast.id) && <Check className="h-3 w-3" />}
                 </div>
                 <Podcast className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">

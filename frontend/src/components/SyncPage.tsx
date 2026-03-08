@@ -13,7 +13,7 @@ export function SyncPage() {
     ipod, subsonicConnected, absConnected, syncing, setSyncing,
     syncProgress, setSyncProgress, syncError, setSyncError,
     syncPlan, setSyncPlan, syncPlanLoading, setSyncPlanLoading,
-    selectedPlaylists, selectedAlbums, selectedBooks, selectedPodcasts,
+    includedPlaylists, includedAlbums, includedBooks, includedPodcasts,
     playlists, albums, books, podcasts,
   } = useAppStore()
 
@@ -36,10 +36,10 @@ export function SyncPage() {
     loadPlan()
   }, [loadPlan])
 
-  const selectedPlaylistList = playlists.filter(p => selectedPlaylists.has(p.id))
-  const selectedAlbumList = albums.filter(a => selectedAlbums.has(a.id))
-  const selectedBookList = books.filter(b => selectedBooks.has(b.id))
-  const selectedPodcastList = podcasts.filter(p => selectedPodcasts.has(p.id))
+  const selectedPlaylistList = playlists.filter(p => includedPlaylists.has(p.id))
+  const selectedAlbumList = albums.filter(a => includedAlbums.has(a.id))
+  const selectedBookList = books.filter(b => includedBooks.has(b.id))
+  const selectedPodcastList = podcasts.filter(p => includedPodcasts.has(p.id))
 
   const newTrackSize = syncPlan
     ? (syncPlan.addTracks || []).reduce((a, t) => a + (t.size || 0), 0)
@@ -54,9 +54,9 @@ export function SyncPage() {
   const newTrackCount = syncPlan ? (syncPlan.addTracks || []).length : 0
   const newBookCount = syncPlan ? (syncPlan.addBooks || []).length : 0
   const newPodcastCount = syncPlan ? (syncPlan.addPodcasts || []).length : 0
-  const removeTrackCount = syncPlan ? (syncPlan.removeTracks || 0) : 0
-  const removeBookCount = syncPlan ? (syncPlan.removeBooks || 0) : 0
-  const removePodcastCount = syncPlan ? (syncPlan.removePodcasts || 0) : 0
+  const removeTrackCount = syncPlan ? (syncPlan.removeTracks || []).length : 0
+  const removeBookCount = syncPlan ? (syncPlan.removeBooks || []).length : 0
+  const removePodcastCount = syncPlan ? (syncPlan.removePodcasts || []).length : 0
   const removeCount = removeTrackCount + removeBookCount + removePodcastCount
   const playsToSync = syncPlan ? (syncPlan.playsToSync || 0) : 0
   const booksToIPod = syncPlan ? (syncPlan.booksToIPod || []) : []
@@ -267,20 +267,59 @@ export function SyncPage() {
               )}
 
               {syncPlan && removeTrackCount > 0 && (
-                <div className="text-sm text-muted-foreground px-2">
-                  {removeTrackCount} track{removeTrackCount !== 1 ? 's' : ''} will be removed from iPod
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Music className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium text-xs uppercase tracking-wider text-muted-foreground">
+                      Remove Tracks ({removeTrackCount})
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {(syncPlan.removeTracks || []).map((t, i) => (
+                      <div key={i} className="text-sm px-2 py-0.5">
+                        <span className="text-foreground">{t.title}</span>
+                        <span className="text-muted-foreground text-xs ml-1">- {t.artist}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {syncPlan && removeBookCount > 0 && (
-                <div className="text-sm text-muted-foreground px-2">
-                  {removeBookCount} book{removeBookCount !== 1 ? 's' : ''} will be removed from iPod
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium text-xs uppercase tracking-wider text-muted-foreground">
+                      Remove Books ({removeBookCount})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {(syncPlan.removeBooks || []).map((b, i) => (
+                      <div key={i} className="text-sm px-2 py-0.5">
+                        <span>{b.title}</span>
+                        <span className="text-muted-foreground text-xs ml-1">- {b.artist}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {syncPlan && removePodcastCount > 0 && (
-                <div className="text-sm text-muted-foreground px-2">
-                  {removePodcastCount} episode{removePodcastCount !== 1 ? 's' : ''} will be removed from iPod
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Podcast className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium text-xs uppercase tracking-wider text-muted-foreground">
+                      Remove Episodes ({removePodcastCount})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {(syncPlan.removePodcasts || []).map((p, i) => (
+                      <div key={i} className="text-sm px-2 py-0.5">
+                        <span>{p.title}</span>
+                        <span className="text-muted-foreground text-xs ml-1">- {p.artist}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Search, Music, ListMusic, ChevronDown, ChevronRight, ChevronUp, Check, X, User, ArrowUpDown } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
-import { GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, SetExclusions, GetExclusions } from '../../wailsjs/go/main/App'
+import { GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
 
 type Section = 'playlists' | 'artists' | 'albums'
 type SortDir = 'asc' | 'desc'
@@ -34,9 +34,9 @@ export function LibraryPage() {
     subsonicConfigured, subsonicConnected, setSettingsOpen,
     playlists, setPlaylists, artists, setArtists, albums, setAlbums,
     searchQuery, setSearchQuery,
-    selectedPlaylists, togglePlaylist, toggleAllPlaylists,
-    selectedArtists, toggleArtist, toggleAllArtists,
-    selectedAlbums, toggleAlbum, toggleAllAlbums,
+    includedPlaylists, togglePlaylist, toggleAllPlaylists,
+    includedArtists, toggleArtist, toggleAllArtists,
+    includedAlbums, toggleAlbum, toggleAllAlbums,
   } = useAppStore()
 
   const [expandedSection, setExpandedSection] = useState<Section | null>('playlists')
@@ -62,15 +62,12 @@ export function LibraryPage() {
         setArtists(ars)
         setLoaded(true)
 
-        GetExclusions().then(exc => {
-          if (!exc) return
-          const exP = exc.playlists || []
-          const exAl = exc.albums || []
-          const exAr = exc.artists || []
+        GetInclusions().then(inc => {
+          if (!inc) return
           useAppStore.setState({
-            selectedPlaylists: new Set(pls.filter(p => !exP.includes(p.id)).map(p => p.id)),
-            selectedAlbums: new Set(als.filter(a => !exAl.includes(a.id)).map(a => a.id)),
-            selectedArtists: new Set(ars.filter(a => !exAr.includes(a.id)).map(a => a.id)),
+            includedPlaylists: new Set(inc.playlists || []),
+            includedAlbums: new Set(inc.albums || []),
+            includedArtists: new Set(inc.artists || []),
           })
         })
       })
@@ -80,17 +77,16 @@ export function LibraryPage() {
   useEffect(() => {
     if (!subsonicConnected) return
     const state = useAppStore.getState()
-    const exclusions = {
-      playlists: state.playlists.filter(p => !state.selectedPlaylists.has(p.id)).map(p => p.id),
-      albums: state.albums.filter(a => !state.selectedAlbums.has(a.id)).map(a => a.id),
-      artists: state.artists.filter(a => !state.selectedArtists.has(a.id)).map(a => a.id),
-      books: [],
-      podcasts: [],
-    }
-    GetExclusions().then(exc => {
-      SetExclusions({ ...exclusions, books: exc?.books || [], podcasts: exc?.podcasts || [] })
+    GetInclusions().then(inc => {
+      SetInclusions({
+        playlists: [...state.includedPlaylists],
+        albums: [...state.includedAlbums],
+        artists: [...state.includedArtists],
+        books: inc?.books || [],
+        podcasts: inc?.podcasts || [],
+      })
     })
-  }, [selectedPlaylists, selectedAlbums, selectedArtists])
+  }, [includedPlaylists, includedAlbums, includedArtists])
 
   const filteredPlaylists = useMemo(() => {
     let items = playlists
@@ -134,9 +130,9 @@ export function LibraryPage() {
     })
   }, [albums, searchQuery, alSortKey, alSortDir])
 
-  const allPlaylistsSelected = playlists.length > 0 && playlists.every(p => selectedPlaylists.has(p.id))
-  const allArtistsSelected = artists.length > 0 && artists.every(a => selectedArtists.has(a.id))
-  const allAlbumsSelected = albums.length > 0 && albums.every(a => selectedAlbums.has(a.id))
+  const allPlaylistsIncluded = playlists.length > 0 && playlists.every(p => includedPlaylists.has(p.id))
+  const allArtistsIncluded = artists.length > 0 && artists.every(a => includedArtists.has(a.id))
+  const allAlbumsIncluded = albums.length > 0 && albums.every(a => includedAlbums.has(a.id))
 
   const toggleSection = (s: Section) => {
     setExpandedSection(expandedSection === s ? null : s)
@@ -161,7 +157,7 @@ export function LibraryPage() {
         <div>
           <h2 className="text-lg font-semibold">Music Library</h2>
           <p className="text-sm text-muted-foreground">
-            {selectedPlaylists.size} playlist{selectedPlaylists.size !== 1 ? 's' : ''}, {selectedArtists.size} artist{selectedArtists.size !== 1 ? 's' : ''}, {selectedAlbums.size} album{selectedAlbums.size !== 1 ? 's' : ''} selected
+            {includedPlaylists.size} playlist{includedPlaylists.size !== 1 ? 's' : ''}, {includedArtists.size} artist{includedArtists.size !== 1 ? 's' : ''}, {includedAlbums.size} album{includedAlbums.size !== 1 ? 's' : ''} selected
           </p>
         </div>
         <div className="relative w-64">
@@ -193,7 +189,7 @@ export function LibraryPage() {
             <div className="ml-auto">
               <Button variant="ghost" size="sm" className="text-xs h-7 w-24"
                 onClick={(e) => { e.stopPropagation(); toggleAllPlaylists() }}>
-                {allPlaylistsSelected ? 'Deselect All' : 'Select All'}
+                {allPlaylistsIncluded ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
           </button>
@@ -210,10 +206,10 @@ export function LibraryPage() {
                 {filteredPlaylists.map(pl => (
                   <button key={pl.id} onClick={() => togglePlaylist(pl.id)}
                     className={cn('w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-                      selectedPlaylists.has(pl.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
+                      includedPlaylists.has(pl.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
                     <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                      selectedPlaylists.has(pl.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
-                      {selectedPlaylists.has(pl.id) && <Check className="h-3 w-3" />}
+                      includedPlaylists.has(pl.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
+                      {includedPlaylists.has(pl.id) && <Check className="h-3 w-3" />}
                     </div>
                     <span className="truncate">{pl.name}</span>
                     <span className="ml-auto text-xs text-muted-foreground">{pl.songCount} songs</span>
@@ -236,7 +232,7 @@ export function LibraryPage() {
             <div className="ml-auto">
               <Button variant="ghost" size="sm" className="text-xs h-7 w-24"
                 onClick={(e) => { e.stopPropagation(); toggleAllArtists() }}>
-                {allArtistsSelected ? 'Deselect All' : 'Select All'}
+                {allArtistsIncluded ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
           </button>
@@ -253,10 +249,10 @@ export function LibraryPage() {
                 {filteredArtists.map(ar => (
                   <button key={ar.id} onClick={() => toggleArtist(ar.id)}
                     className={cn('w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-                      selectedArtists.has(ar.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
+                      includedArtists.has(ar.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
                     <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                      selectedArtists.has(ar.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
-                      {selectedArtists.has(ar.id) && <Check className="h-3 w-3" />}
+                      includedArtists.has(ar.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
+                      {includedArtists.has(ar.id) && <Check className="h-3 w-3" />}
                     </div>
                     <span className="truncate">{ar.name}</span>
                     <div className="ml-auto flex items-center gap-3 shrink-0">
@@ -282,7 +278,7 @@ export function LibraryPage() {
             <div className="ml-auto">
               <Button variant="ghost" size="sm" className="text-xs h-7 w-24"
                 onClick={(e) => { e.stopPropagation(); toggleAllAlbums() }}>
-                {allAlbumsSelected ? 'Deselect All' : 'Select All'}
+                {allAlbumsIncluded ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
           </button>
@@ -303,10 +299,10 @@ export function LibraryPage() {
                 {filteredAlbums.map(al => (
                   <button key={al.id} onClick={() => toggleAlbum(al.id)}
                     className={cn('w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-                      selectedAlbums.has(al.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
+                      includedAlbums.has(al.id) ? 'bg-accent/70' : 'hover:bg-accent/30')}>
                     <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                      selectedAlbums.has(al.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
-                      {selectedAlbums.has(al.id) && <Check className="h-3 w-3" />}
+                      includedAlbums.has(al.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
+                      {includedAlbums.has(al.id) && <Check className="h-3 w-3" />}
                     </div>
                     <div className="flex flex-col items-start min-w-0">
                       <span className="truncate w-full text-left">{al.name}</span>

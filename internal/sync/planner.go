@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"log"
-	"slices"
 
 	"clickwheel/internal/audiobookshelf"
 	"clickwheel/internal/config"
@@ -11,6 +10,14 @@ import (
 	"clickwheel/internal/ipod/itunesdb"
 	"clickwheel/internal/subsonic"
 )
+
+func toSet(ids []string) map[string]bool {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
 
 type TrackItem struct {
 	SourceID string
@@ -61,7 +68,7 @@ type SyncPlan struct {
 	Playlists      []PlaylistPlan
 }
 
-func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, abs *audiobookshelf.Client, dev *ipod.Device) (*SyncPlan, error) {
+func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client, dev *ipod.Device) (*SyncPlan, error) {
 	plan := &SyncPlan{}
 
 	existingIDs := make(map[string]bool)
@@ -72,6 +79,12 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 	}
 
 	wantedIDs := make(map[string]bool)
+
+	includedPlaylists := toSet(cfg.Inclusions.Playlists)
+	includedArtists := toSet(cfg.Inclusions.Artists)
+	includedAlbums := toSet(cfg.Inclusions.Albums)
+	includedBooks := toSet(cfg.Inclusions.Books)
+	includedPodcasts := toSet(cfg.Inclusions.Podcasts)
 
 	targetFormat := cfg.SyncSettings.MusicFormat
 	targetBitRate := cfg.SyncSettings.MusicBitRate
@@ -112,7 +125,7 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 		}
 
 		for _, pl := range playlists {
-			if slices.Contains(cfg.Exclusions.Playlists, pl.ID) {
+			if !includedPlaylists[pl.ID] {
 				continue
 			}
 
@@ -136,7 +149,7 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 		artists, err := sub.GetArtists()
 		if err == nil {
 			for _, ar := range artists {
-				if slices.Contains(cfg.Exclusions.Artists, ar.ID) {
+				if !includedArtists[ar.ID] {
 					continue
 				}
 				detail, err := sub.GetArtist(ar.ID)
@@ -158,7 +171,7 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 		albums, err := sub.GetAlbums(0, 500)
 		if err == nil {
 			for _, al := range albums {
-				if slices.Contains(cfg.Exclusions.Albums, al.ID) {
+				if !includedAlbums[al.ID] {
 					continue
 				}
 				albumDetail, err := sub.GetAlbum(al.ID)
@@ -190,7 +203,7 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 				log.Printf("[plan] ABS library %q: %d podcasts", lib.Name, len(podcasts))
 
 				for _, pod := range podcasts {
-					if slices.Contains(cfg.Exclusions.Podcasts, pod.ID) {
+					if !includedPodcasts[pod.ID] {
 						continue
 					}
 
@@ -230,7 +243,7 @@ func BuildPlan(ctx context.Context, cfg *config.Config, sub *subsonic.Client, ab
 			log.Printf("[plan] ABS library %q: %d books", lib.Name, len(books))
 
 			for _, book := range books {
-				if slices.Contains(cfg.Exclusions.Books, book.ID) {
+				if !includedBooks[book.ID] {
 					continue
 				}
 

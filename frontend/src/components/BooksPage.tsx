@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Check, X, BookOpen, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
 import { useMemo, useEffect, useState } from 'react'
-import { GetABSLibraries, GetABSBooks, GetABSProgress, SetExclusions, GetExclusions } from '../../wailsjs/go/main/App'
+import { GetABSLibraries, GetABSBooks, GetABSProgress, SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
 
 type SortKey = 'title' | 'author' | 'duration' | 'size'
 type SortDir = 'asc' | 'desc'
@@ -28,7 +28,7 @@ export function BooksPage() {
   const {
     absConfigured, absConnected, setSettingsOpen,
     books, setBooks, searchQuery, setSearchQuery,
-    selectedBooks, toggleBook, toggleAllBooks,
+    includedBooks, toggleBook, toggleAllBooks,
   } = useAppStore()
 
   const [loaded, setLoaded] = useState(false)
@@ -60,10 +60,9 @@ export function BooksPage() {
             setProgress(pct)
           })
 
-          GetExclusions().then(exc => {
-            const exBooks = exc?.books || []
+          GetInclusions().then(inc => {
             useAppStore.setState({
-              selectedBooks: new Set(bookList.filter(b => !exBooks.includes(b.id)).map(b => b.id)),
+              includedBooks: new Set(inc?.books || []),
             })
           })
         })
@@ -74,16 +73,16 @@ export function BooksPage() {
   useEffect(() => {
     if (!absConnected || books.length === 0) return
     const state = useAppStore.getState()
-    GetExclusions().then(exc => {
-      SetExclusions({
-        playlists: exc?.playlists || [],
-        albums: exc?.albums || [],
-        artists: exc?.artists || [],
-        books: state.books.filter(b => !state.selectedBooks.has(b.id)).map(b => b.id),
-        podcasts: exc?.podcasts || [],
+    GetInclusions().then(inc => {
+      SetInclusions({
+        playlists: inc?.playlists || [],
+        albums: inc?.albums || [],
+        artists: inc?.artists || [],
+        books: [...state.includedBooks],
+        podcasts: inc?.podcasts || [],
       })
     })
-  }, [selectedBooks])
+  }, [includedBooks])
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -114,9 +113,9 @@ export function BooksPage() {
     })
   }, [books, searchQuery, sortKey, sortDir])
 
-  const allSelected = books.length > 0 && books.every(b => selectedBooks.has(b.id))
+  const allIncluded = books.length > 0 && books.every(b => includedBooks.has(b.id))
   const selectedSize = books
-    .filter(b => selectedBooks.has(b.id))
+    .filter(b => includedBooks.has(b.id))
     .reduce((acc, b) => acc + b.size, 0)
 
   if (!absConfigured) {
@@ -138,7 +137,7 @@ export function BooksPage() {
         <div>
           <h2 className="text-lg font-semibold">Audiobooks</h2>
           <p className="text-sm text-muted-foreground">
-            {selectedBooks.size} selected &middot; {formatBytes(selectedSize)}
+            {includedBooks.size} selected &middot; {formatBytes(selectedSize)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -157,7 +156,7 @@ export function BooksPage() {
             )}
           </div>
           <Button variant="ghost" size="sm" className="w-24" onClick={toggleAllBooks}>
-            {allSelected ? 'Deselect All' : 'Select All'}
+            {allIncluded ? 'Deselect All' : 'Select All'}
           </Button>
         </div>
       </div>
@@ -183,14 +182,14 @@ export function BooksPage() {
                 onClick={() => toggleBook(book.id)}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors text-left',
-                  selectedBooks.has(book.id) ? 'bg-accent/70' : 'hover:bg-accent/30'
+                  includedBooks.has(book.id) ? 'bg-accent/70' : 'hover:bg-accent/30'
                 )}
               >
                 <div className={cn(
                   'h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                  selectedBooks.has(book.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'
+                  includedBooks.has(book.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'
                 )}>
-                  {selectedBooks.has(book.id) && <Check className="h-3 w-3" />}
+                  {includedBooks.has(book.id) && <Check className="h-3 w-3" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{book.title}</div>

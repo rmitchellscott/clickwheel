@@ -22,6 +22,7 @@ type DeviceInfo struct {
 	Model           string `json:"model"`
 	Icon            string `json:"icon"`
 	DisplayCapacity string `json:"displayCapacity"`
+	SerialNumber    string `json:"serialNumber,omitempty"`
 }
 
 type modelInfo struct {
@@ -590,13 +591,18 @@ func ReadSysInfo(mountPoint string) *DeviceInfo {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	var modelNumRaw string
+	var modelNumRaw, serial, fwGuid string
 	for scanner.Scan() {
 		line := scanner.Text()
 		if k, v, ok := strings.Cut(line, ":"); ok {
 			k, v = strings.TrimSpace(k), strings.TrimSpace(v)
-			if k == "ModelNumStr" {
+			switch k {
+			case "ModelNumStr":
 				modelNumRaw = v
+			case "pszSerialNumber":
+				serial = v
+			case "FirewireGuid":
+				fwGuid = v
 			}
 		}
 	}
@@ -605,22 +611,29 @@ func ReadSysInfo(mountPoint string) *DeviceInfo {
 		return nil
 	}
 
+	serialNumber := serial
+	if serialNumber == "" {
+		serialNumber = fwGuid
+	}
+
 	modelNum := extractModelNumber(modelNumRaw)
 	info := getModelInfo(modelNum)
 	if info == nil {
 		return &DeviceInfo{
-			Model: modelNum,
-			Icon:  "iPodGeneric.png",
+			Model:        modelNum,
+			Icon:         "iPodGeneric.png",
+			SerialNumber: serialNumber,
 		}
 	}
 
 	return &DeviceInfo{
-		Family:     info.Family,
-		Generation: info.Generation,
-		Capacity:   info.Capacity,
-		Color:      info.Color,
-		Model:      modelNum,
-		Icon:       imageForModel(modelNum),
+		Family:       info.Family,
+		Generation:   info.Generation,
+		Capacity:     info.Capacity,
+		Color:        info.Color,
+		Model:        modelNum,
+		Icon:         imageForModel(modelNum),
+		SerialNumber: serialNumber,
 	}
 }
 
@@ -635,6 +648,7 @@ func fillDeviceInfo(di *DeviceInfo, sysInfo *DeviceInfo) {
 	di.Color = sysInfo.Color
 	di.Model = sysInfo.Model
 	di.Icon = sysInfo.Icon
+	di.SerialNumber = sysInfo.SerialNumber
 	if di.TotalSpace > 0 {
 		di.DisplayCapacity = displayCapacity(parseCapacityGB(sysInfo.Capacity), di.TotalSpace)
 	} else if sysInfo.Capacity != "" {

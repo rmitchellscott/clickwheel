@@ -115,22 +115,23 @@ func (t *etaTracker) finalRate() float64 {
 type ProgressFunc func(Progress)
 
 type Engine struct {
-	cfg       *config.Config
-	sub       *subsonic.Client
-	abs       *audiobookshelf.Client
+	host   *config.HostConfig
+	device *config.DeviceConfig
+	sub    *subsonic.Client
+	abs    *audiobookshelf.Client
 }
 
-func NewEngine(cfg *config.Config, sub *subsonic.Client, abs *audiobookshelf.Client) *Engine {
-	return &Engine{cfg: cfg, sub: sub, abs: abs}
+func NewEngine(host *config.HostConfig, device *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client) *Engine {
+	return &Engine{host: host, device: device, sub: sub, abs: abs}
 }
 
 type PlanSummary struct {
 	AddTracks        []PlanSummaryItem `json:"addTracks"`
 	AddBooks         []PlanSummaryItem `json:"addBooks"`
 	AddPodcasts      []PlanSummaryItem `json:"addPodcasts"`
-	RemoveTracks     int               `json:"removeTracks"`
-	RemoveBooks      int               `json:"removeBooks"`
-	RemovePodcasts   int               `json:"removePodcasts"`
+	RemoveTracks     []PlanSummaryItem `json:"removeTracks"`
+	RemoveBooks      []PlanSummaryItem `json:"removeBooks"`
+	RemovePodcasts   []PlanSummaryItem `json:"removePodcasts"`
 	Playlists        []string          `json:"playlists"`
 	PlaylistsChanged []string          `json:"playlistsChanged"`
 	PlaysToSync      int               `json:"playsToSync"`
@@ -162,15 +163,39 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 
 	purgeUnmanagedTracks(dev)
 
-	plan, err := BuildPlan(ctx, e.cfg, e.sub, e.abs, dev)
+	plan, err := BuildPlan(ctx, e.device, e.sub, e.abs, dev)
 	if err != nil {
 		return nil, fmt.Errorf("building sync plan: %w", err)
 	}
 
-	summary := &PlanSummary{
-		RemoveTracks:   len(plan.RemoveTracks),
-		RemoveBooks:    len(plan.RemoveBooks),
-		RemovePodcasts: len(plan.RemovePodcasts),
+	trackBySource := make(map[string]*itunesdb.Track, len(dev.DB.Tracks))
+	for _, t := range dev.DB.Tracks {
+		if t.SourceID != "" {
+			trackBySource[t.SourceID] = t
+		}
+	}
+
+	summary := &PlanSummary{}
+	for _, id := range plan.RemoveTracks {
+		item := PlanSummaryItem{Title: id}
+		if t := trackBySource[id]; t != nil {
+			item = PlanSummaryItem{Title: t.Title, Artist: t.Artist, Size: int64(t.Size)}
+		}
+		summary.RemoveTracks = append(summary.RemoveTracks, item)
+	}
+	for _, id := range plan.RemoveBooks {
+		item := PlanSummaryItem{Title: id}
+		if t := trackBySource[id]; t != nil {
+			item = PlanSummaryItem{Title: t.Title, Artist: t.Artist, Size: int64(t.Size)}
+		}
+		summary.RemoveBooks = append(summary.RemoveBooks, item)
+	}
+	for _, id := range plan.RemovePodcasts {
+		item := PlanSummaryItem{Title: id}
+		if t := trackBySource[id]; t != nil {
+			item = PlanSummaryItem{Title: t.Title, Artist: t.Artist, Size: int64(t.Size)}
+		}
+		summary.RemovePodcasts = append(summary.RemovePodcasts, item)
 	}
 
 	for _, t := range plan.AddTracks {
@@ -211,19 +236,19 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 		}
 	}
 
-	if e.cfg.SyncSettings.SyncPlayCounts && e.sub != nil {
+	if e.device.SyncSettings.SyncPlayCounts && e.sub != nil {
 		for _, track := range dev.DB.Tracks {
 			if track.SourceID == "" || track.MediaType != itunesdb.MediaTypeMusic {
 				continue
 			}
-			prev := e.cfg.SyncState.TrackPlayCounts[track.SourceID]
+			prev := e.device.SyncState.TrackPlayCounts[track.SourceID]
 			if delta := int(track.PlayCount) - prev.PlayCount; delta > 0 {
 				summary.PlaysToSync += delta
 			}
 		}
 	}
 
-	if e.cfg.SyncSettings.SyncBookPosition && e.abs != nil {
+	if e.device.SyncSettings.SyncBookPosition && e.abs != nil {
 		for _, track := range dev.DB.Tracks {
 			if track.SourceID == "" || track.MediaType != itunesdb.MediaTypeAudiobook {
 				continue
@@ -254,7 +279,7 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 		}
 	}
 
-	if e.cfg.SyncSettings.SyncPodcastPosition && e.abs != nil {
+	if e.device.SyncSettings.SyncPodcastPosition && e.abs != nil {
 		for _, track := range dev.DB.Tracks {
 			if track.SourceID == "" || track.MediaType != itunesdb.MediaTypePodcast {
 				continue
@@ -310,19 +335,19 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 	purgeUnmanagedTracks(dev)
 	log.Printf("[sync] %d managed tracks on iPod after purge", len(dev.DB.Tracks))
 
-	if e.cfg.SyncSettings.SyncPlayCounts {
+	if e.device.SyncSettings.SyncPlayCounts {
 		if err := e.syncPlayCounts(ctx, dev, onProgress); err != nil {
 			return fmt.Errorf("syncing play counts: %w", err)
 		}
 	}
 
-	if e.cfg.SyncSettings.SyncBookPosition {
+	if e.device.SyncSettings.SyncBookPosition {
 		if err := e.syncBookmarks(ctx, dev, onProgress); err != nil {
 			return fmt.Errorf("syncing bookmarks: %w", err)
 		}
 	}
 
-	if e.cfg.SyncSettings.SyncPodcastPosition {
+	if e.device.SyncSettings.SyncPodcastPosition {
 		if err := e.syncPodcastProgress(ctx, dev, onProgress); err != nil {
 			return fmt.Errorf("syncing podcast progress: %w", err)
 		}
@@ -356,8 +381,8 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 		return fmt.Errorf("saving iTunesDB: %w", err)
 	}
 
-	if err := e.cfg.Save(); err != nil {
-		return fmt.Errorf("saving config: %w", err)
+	if err := e.device.SaveBoth(dev.Info.MountPoint); err != nil {
+		return fmt.Errorf("saving device config: %w", err)
 	}
 
 	onProgress(Progress{Phase: "done", Message: "Sync complete!", Percent: 100})
@@ -375,7 +400,7 @@ func (e *Engine) syncPlayCounts(ctx context.Context, dev *ipod.Device, onProgres
 			continue
 		}
 
-		prev := e.cfg.SyncState.TrackPlayCounts[track.SourceID]
+		prev := e.device.SyncState.TrackPlayCounts[track.SourceID]
 		delta := int(track.PlayCount) - prev.PlayCount
 
 		for range delta {
@@ -385,7 +410,7 @@ func (e *Engine) syncPlayCounts(ctx context.Context, dev *ipod.Device, onProgres
 		}
 
 		if delta > 0 {
-			e.cfg.SyncState.TrackPlayCounts[track.SourceID] = config.TrackSyncState{
+			e.device.SyncState.TrackPlayCounts[track.SourceID] = config.TrackSyncState{
 				PlayCount: int(track.PlayCount),
 				LastSync:  time.Now().Unix(),
 			}
@@ -472,13 +497,13 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 				continue
 			}
 			if ipodSec > absSec {
-				if e.cfg.SyncSettings.TwoWayPodcastSync {
+				if e.device.SyncSettings.TwoWayPodcastSync {
 					_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, float64(track.BookmarkTime)/1000.0, progress.Duration)
 				}
 			} else {
 				track.BookmarkTime = uint32(progress.CurrentTime * 1000)
 			}
-		} else if ipodSec > 0 && e.cfg.SyncSettings.TwoWayPodcastSync {
+		} else if ipodSec > 0 && e.device.SyncSettings.TwoWayPodcastSync {
 			_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, float64(track.BookmarkTime)/1000.0, float64(track.Duration)/1000.0)
 		}
 	}
@@ -488,7 +513,7 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 
 func (e *Engine) buildPlan(ctx context.Context, dev *ipod.Device, onProgress ProgressFunc) (*SyncPlan, error) {
 	onProgress(Progress{Phase: "plan", Message: "Building sync plan..."})
-	return BuildPlan(ctx, e.cfg, e.sub, e.abs, dev)
+	return BuildPlan(ctx, e.device, e.sub, e.abs, dev)
 }
 
 func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPlan, onProgress ProgressFunc) error {
@@ -513,10 +538,10 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 		totalBytes += p.Size
 	}
 
-	tracker := newETATracker(e.cfg.SyncState.TransferRate, totalBytes)
+	tracker := newETATracker(e.device.SyncState.TransferRate, totalBytes)
 
-	format := e.cfg.SyncSettings.MusicFormat
-	bitRate := e.cfg.SyncSettings.MusicBitRate
+	format := e.device.SyncSettings.MusicFormat
+	bitRate := e.device.SyncSettings.MusicBitRate
 
 	if len(plan.AddTracks) > 0 {
 		workers := runtime.NumCPU()
@@ -645,7 +670,7 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 	}
 
 	if rate := tracker.finalRate(); rate > 0 {
-		e.cfg.SyncState.TransferRate = rate
+		e.device.SyncState.TransferRate = rate
 	}
 
 	return nil

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { X, CheckCircle, XCircle, Loader2, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { applyTheme, type Theme } from '@/main'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -27,7 +28,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   )
 }
 
-function SettingRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+function SettingRow({ label, description, children }: { label: React.ReactNode; description?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2">
       <div className="min-w-0">
@@ -185,7 +186,7 @@ export function SettingsDialog() {
           </Button>
         </div>
 
-        <div className="flex h-[28rem]">
+        <div className="flex h-[32rem]">
           <nav className="w-44 border-r p-2 shrink-0">
             {sections.map(s => (
               <button
@@ -334,7 +335,21 @@ export function SettingsDialog() {
                     <Toggle checked={syncBookPosition} onChange={setSyncBookPosition} />
                   </SettingRow>
                   <SettingRow
-                    label="Two-way sync"
+                    label={
+                      <span className="flex items-center gap-1.5">
+                        Two-way sync
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-64">
+                              When both devices have progress, the most recent position wins. Listening on the iPod between syncs will update your Audiobookshelf server automatically.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </span>
+                    }
                     description="Also push iPod listening progress back to Audiobookshelf"
                   >
                     <Toggle checked={twoWayBookSync} onChange={setTwoWayBookSync} disabled={!syncBookPosition} />
@@ -368,14 +383,6 @@ export function SettingsDialog() {
                       </div>
                     </div>
                   )}
-                  {twoWayBookSync && syncBookPosition && (
-                    <div className="flex items-start gap-2 rounded-md bg-accent/50 p-2.5 mt-1">
-                      <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-                      <p className="text-xs text-muted-foreground">
-                        When both devices have progress, the most recent position wins. Listening on the iPod between syncs will update your Audiobookshelf server automatically.
-                      </p>
-                    </div>
-                  )}
                 </section>
 
                 <div className="border-t" />
@@ -389,7 +396,21 @@ export function SettingsDialog() {
                     <Toggle checked={syncPodcastPosition} onChange={setSyncPodcastPosition} />
                   </SettingRow>
                   <SettingRow
-                    label="Two-way sync"
+                    label={
+                      <span className="flex items-center gap-1.5">
+                        Two-way sync
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-64">
+                              When both devices have progress, the furthest position wins. Listening on the iPod between syncs will update your Audiobookshelf server automatically.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </span>
+                    }
                     description="Also push iPod listening progress back to Audiobookshelf"
                   >
                     <Toggle checked={twoWayPodcastSync} onChange={setTwoWayPodcastSync} disabled={!syncPodcastPosition} />

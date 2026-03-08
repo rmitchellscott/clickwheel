@@ -96,9 +96,9 @@ export interface SyncPlanSummary {
   addTracks: { title: string; artist: string; size: number }[]
   addBooks: { title: string; artist: string; size: number }[]
   addPodcasts: { title: string; artist: string; size: number }[]
-  removeTracks: number
-  removeBooks: number
-  removePodcasts: number
+  removeTracks: { title: string; artist: string; size: number }[]
+  removeBooks: { title: string; artist: string; size: number }[]
+  removePodcasts: { title: string; artist: string; size: number }[]
   playlists: string[]
   playlistsChanged: string[]
   playsToSync: number
@@ -106,6 +106,17 @@ export interface SyncPlanSummary {
   booksFromIPod: string[]
   podcastsToIPod: string[]
   podcastsFromIPod: string[]
+}
+
+export interface KnownDevice {
+  deviceId: string
+  name: string
+  family?: string
+  generation?: string
+  capacity?: string
+  color?: string
+  model?: string
+  icon?: string
 }
 
 type Page = 'ipod' | 'library' | 'books' | 'podcasts' | 'sync'
@@ -116,6 +127,11 @@ interface AppState {
 
   ipod: IPodInfo | null
   setIPod: (ipod: IPodInfo | null) => void
+
+  activeDeviceId: string | null
+  setActiveDeviceId: (id: string | null) => void
+  knownDevices: KnownDevice[]
+  setKnownDevices: (devices: KnownDevice[]) => void
   ipodTracks: IPodTrack[]
   setIPodTracks: (tracks: IPodTrack[]) => void
   ipodPlaylists: IPodPlaylist[]
@@ -139,25 +155,25 @@ interface AppState {
   books: Book[]
   setBooks: (books: Book[]) => void
 
-  selectedPlaylists: Set<string>
+  includedPlaylists: Set<string>
   togglePlaylist: (id: string) => void
   toggleAllPlaylists: () => void
 
-  selectedAlbums: Set<string>
+  includedAlbums: Set<string>
   toggleAlbum: (id: string) => void
   toggleAllAlbums: () => void
 
-  selectedArtists: Set<string>
+  includedArtists: Set<string>
   toggleArtist: (id: string) => void
   toggleAllArtists: () => void
 
-  selectedBooks: Set<string>
+  includedBooks: Set<string>
   toggleBook: (id: string) => void
   toggleAllBooks: () => void
 
   podcasts: Podcast[]
   setPodcasts: (podcasts: Podcast[]) => void
-  selectedPodcasts: Set<string>
+  includedPodcasts: Set<string>
   togglePodcast: (id: string) => void
   toggleAllPodcasts: () => void
 
@@ -197,6 +213,12 @@ export const useAppStore = create<AppState>((set) => ({
 
   ipod: null,
   setIPod: (ipod) => set({ ipod }),
+
+  activeDeviceId: null,
+  setActiveDeviceId: (activeDeviceId) => set({ activeDeviceId }),
+  knownDevices: [],
+  setKnownDevices: (knownDevices) => set({ knownDevices }),
+
   ipodTracks: [],
   setIPodTracks: (ipodTracks) => set({ ipodTracks }),
   ipodPlaylists: [],
@@ -220,41 +242,41 @@ export const useAppStore = create<AppState>((set) => ({
   books: [],
   setBooks: (books) => set({ books }),
 
-  selectedPlaylists: new Set(),
-  togglePlaylist: (id) => set(state => ({ selectedPlaylists: toggleInSet(state.selectedPlaylists, id) })),
+  includedPlaylists: new Set(),
+  togglePlaylist: (id) => set(state => ({ includedPlaylists: toggleInSet(state.includedPlaylists, id) })),
   toggleAllPlaylists: () => set(state => {
-    const allSelected = state.playlists.length > 0 && state.playlists.every(p => state.selectedPlaylists.has(p.id))
-    return { selectedPlaylists: allSelected ? new Set() : new Set(state.playlists.map(p => p.id)) }
+    const allIncluded = state.playlists.length > 0 && state.playlists.every(p => state.includedPlaylists.has(p.id))
+    return { includedPlaylists: allIncluded ? new Set() : new Set(state.playlists.map(p => p.id)) }
   }),
 
-  selectedAlbums: new Set(),
-  toggleAlbum: (id) => set(state => ({ selectedAlbums: toggleInSet(state.selectedAlbums, id) })),
+  includedAlbums: new Set(),
+  toggleAlbum: (id) => set(state => ({ includedAlbums: toggleInSet(state.includedAlbums, id) })),
   toggleAllAlbums: () => set(state => {
-    const allSelected = state.albums.length > 0 && state.albums.every(a => state.selectedAlbums.has(a.id))
-    return { selectedAlbums: allSelected ? new Set() : new Set(state.albums.map(a => a.id)) }
+    const allIncluded = state.albums.length > 0 && state.albums.every(a => state.includedAlbums.has(a.id))
+    return { includedAlbums: allIncluded ? new Set() : new Set(state.albums.map(a => a.id)) }
   }),
 
-  selectedArtists: new Set(),
-  toggleArtist: (id) => set(state => ({ selectedArtists: toggleInSet(state.selectedArtists, id) })),
+  includedArtists: new Set(),
+  toggleArtist: (id) => set(state => ({ includedArtists: toggleInSet(state.includedArtists, id) })),
   toggleAllArtists: () => set(state => {
-    const allSelected = state.artists.length > 0 && state.artists.every(a => state.selectedArtists.has(a.id))
-    return { selectedArtists: allSelected ? new Set() : new Set(state.artists.map(a => a.id)) }
+    const allIncluded = state.artists.length > 0 && state.artists.every(a => state.includedArtists.has(a.id))
+    return { includedArtists: allIncluded ? new Set() : new Set(state.artists.map(a => a.id)) }
   }),
 
-  selectedBooks: new Set(),
-  toggleBook: (id) => set(state => ({ selectedBooks: toggleInSet(state.selectedBooks, id) })),
+  includedBooks: new Set(),
+  toggleBook: (id) => set(state => ({ includedBooks: toggleInSet(state.includedBooks, id) })),
   toggleAllBooks: () => set(state => {
-    const allSelected = state.books.length > 0 && state.books.every(b => state.selectedBooks.has(b.id))
-    return { selectedBooks: allSelected ? new Set() : new Set(state.books.map(b => b.id)) }
+    const allIncluded = state.books.length > 0 && state.books.every(b => state.includedBooks.has(b.id))
+    return { includedBooks: allIncluded ? new Set() : new Set(state.books.map(b => b.id)) }
   }),
 
   podcasts: [],
   setPodcasts: (podcasts) => set({ podcasts }),
-  selectedPodcasts: new Set(),
-  togglePodcast: (id) => set(state => ({ selectedPodcasts: toggleInSet(state.selectedPodcasts, id) })),
+  includedPodcasts: new Set(),
+  togglePodcast: (id) => set(state => ({ includedPodcasts: toggleInSet(state.includedPodcasts, id) })),
   toggleAllPodcasts: () => set(state => {
-    const allSelected = state.podcasts.length > 0 && state.podcasts.every(p => state.selectedPodcasts.has(p.id))
-    return { selectedPodcasts: allSelected ? new Set() : new Set(state.podcasts.map(p => p.id)) }
+    const allIncluded = state.podcasts.length > 0 && state.podcasts.every(p => state.includedPodcasts.has(p.id))
+    return { includedPodcasts: allIncluded ? new Set() : new Set(state.podcasts.map(p => p.id)) }
   }),
 
   syncPlan: null,

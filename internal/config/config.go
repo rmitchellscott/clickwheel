@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type SubsonicConfig struct {
@@ -23,11 +24,11 @@ type TrackSyncState struct {
 }
 
 type SyncState struct {
-	TrackPlayCounts  map[string]TrackSyncState `json:"trackPlayCounts"`
-	TransferRate     float64                   `json:"transferRate,omitempty"`
+	TrackPlayCounts map[string]TrackSyncState `json:"trackPlayCounts"`
+	TransferRate    float64                   `json:"transferRate,omitempty"`
 }
 
-type Exclusions struct {
+type Inclusions struct {
 	Playlists []string `json:"playlists"`
 	Albums    []string `json:"albums"`
 	Artists   []string `json:"artists"`
@@ -47,16 +48,41 @@ type SyncSettings struct {
 	TwoWayPodcastSync   bool   `json:"twoWayPodcastSync"`
 }
 
-type Config struct {
-	Subsonic     SubsonicConfig  `json:"subsonic"`
-	ABS          ABSConfig       `json:"abs"`
-	SyncState    SyncState       `json:"syncState"`
-	Exclusions   Exclusions      `json:"exclusions"`
-	SyncSettings SyncSettings    `json:"syncSettings"`
+type ServerURLs struct {
+	SubsonicURL string `json:"subsonicUrl,omitempty"`
+	ABSURL      string `json:"absUrl,omitempty"`
+}
+
+type KnownDevice struct {
+	DeviceID   string `json:"deviceId"`
+	Name       string `json:"name"`
+	Family     string `json:"family,omitempty"`
+	Generation string `json:"generation,omitempty"`
+	Capacity   string `json:"capacity,omitempty"`
+	Color      string `json:"color,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Icon       string `json:"icon,omitempty"`
+}
+
+type HostConfig struct {
+	Subsonic     SubsonicConfig `json:"subsonic"`
+	ABS          ABSConfig      `json:"abs"`
+	LastDeviceID string         `json:"lastDeviceId,omitempty"`
+	KnownDevices []KnownDevice  `json:"knownDevices,omitempty"`
 	path         string
 }
 
-func configPath() (string, error) {
+type DeviceConfig struct {
+	DeviceID     string       `json:"deviceId"`
+	LastModified int64        `json:"lastModified"`
+	Servers      ServerURLs   `json:"servers"`
+	Inclusions   Inclusions   `json:"inclusions"`
+	SyncSettings SyncSettings `json:"syncSettings"`
+	SyncState    SyncState    `json:"syncState"`
+	path         string
+}
+
+func hostConfigPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -64,9 +90,26 @@ func configPath() (string, error) {
 	return filepath.Join(dir, "clickwheel", "config.json"), nil
 }
 
-func Default() *Config {
-	p, _ := configPath()
-	return &Config{
+var DeviceBackupPath = func(deviceID string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "clickwheel", "devices", deviceID, "config.json"), nil
+}
+
+func IPodConfigPath(mountPoint string) string {
+	return filepath.Join(mountPoint, "iPod_Control", "Clickwheel", "config.json")
+}
+
+func DefaultHost() *HostConfig {
+	p, _ := hostConfigPath()
+	return &HostConfig{path: p}
+}
+
+func DefaultDevice(deviceID string) *DeviceConfig {
+	return &DeviceConfig{
+		DeviceID: deviceID,
 		SyncState: SyncState{
 			TrackPlayCounts: make(map[string]TrackSyncState),
 		},
@@ -81,12 +124,11 @@ func Default() *Config {
 			MusicFormat:         "aac",
 			MusicBitRate:        256,
 		},
-		path: p,
 	}
 }
 
-func Load() (*Config, error) {
-	p, err := configPath()
+func LoadHost() (*HostConfig, error) {
+	p, err := hostConfigPath()
 	if err != nil {
 		return nil, err
 	}
@@ -96,21 +138,16 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	cfg := Default()
-	cfg.path = p
+	cfg := &HostConfig{path: p}
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
-	}
-
-	if cfg.SyncState.TrackPlayCounts == nil {
-		cfg.SyncState.TrackPlayCounts = make(map[string]TrackSyncState)
 	}
 	return cfg, nil
 }
 
-func (c *Config) Save() error {
+func (c *HostConfig) Save() error {
 	if c.path == "" {
-		p, err := configPath()
+		p, err := hostConfigPath()
 		if err != nil {
 			return err
 		}
@@ -125,6 +162,80 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-
 	return os.WriteFile(c.path, data, 0600)
+}
+
+func loadDeviceFrom(path string) (*DeviceConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &DeviceConfig{}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+	cfg.path = path
+	if cfg.SyncState.TrackPlayCounts == nil {
+		cfg.SyncState.TrackPlayCounts = make(map[string]TrackSyncState)
+	}
+	return cfg, nil
+}
+
+func (c *DeviceConfig) SetPath(p string) {
+	c.path = p
+}
+
+func (c *DeviceConfig) Save() error {
+	if c.path == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(c.path), 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(c.path, data, 0644)
+}
+
+func (c *DeviceConfig) SaveBoth(mountPoint string) error {
+	c.LastModified = now()
+
+	ipodPath := IPodConfigPath(mountPoint)
+	c.path = ipodPath
+	if err := c.Save(); err != nil {
+		return err
+	}
+
+	backupPath, err := DeviceBackupPath(c.DeviceID)
+	if err != nil {
+		return err
+	}
+	c.path = backupPath
+	return c.Save()
+}
+
+func (c *HostConfig) UpdateKnownDevice(dev KnownDevice) {
+	for i, d := range c.KnownDevices {
+		if d.DeviceID == dev.DeviceID {
+			c.KnownDevices[i] = dev
+			return
+		}
+	}
+	c.KnownDevices = append(c.KnownDevices, dev)
+}
+
+func LoadDeviceFromBackup(deviceID string) (*DeviceConfig, error) {
+	bp, err := DeviceBackupPath(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return loadDeviceFrom(bp)
+}
+
+func now() int64 {
+	return time.Now().Unix()
 }

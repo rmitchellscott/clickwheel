@@ -1,7 +1,7 @@
 import { useAppStore } from '@/store/appStore'
 import { formatBytes } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Music, BookOpen, Podcast, RefreshCw, Settings, Circle, Loader2 } from 'lucide-react'
+import { Music, BookOpen, Podcast, RefreshCw, Settings, Circle, Loader2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { IPodIcon } from '@/components/IPodIcon'
@@ -15,7 +15,7 @@ function EjectIcon({ className }: { className?: string }) {
   )
 }
 import { useState } from 'react'
-import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection } from '../../wailsjs/go/main/App'
+import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection, SwitchDevice, GetKnownDevices, GetActiveDeviceID, GetInclusions } from '../../wailsjs/go/main/App'
 
 const navItems = [
   { id: 'library' as const, label: 'Music', icon: Music },
@@ -31,12 +31,16 @@ export function Sidebar() {
     absConfigured, absConnected, setAbsConnected,
     settingsOpen, setSettingsOpen,
     syncPlan,
+    activeDeviceId, knownDevices,
   } = useAppStore()
 
   const [scanningIPod, setScanningIPod] = useState(false)
   const [ejecting, setEjecting] = useState(false)
   const [reconnectingNav, setReconnectingNav] = useState(false)
   const [reconnectingAbs, setReconnectingAbs] = useState(false)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+
+  const activeKnownDevice = knownDevices.find(d => d.deviceId === activeDeviceId)
 
   const scanForIPod = async () => {
     if (scanningIPod) return
@@ -72,6 +76,26 @@ export function Sidebar() {
       setSubsonicConnected(false)
     }
     setReconnectingNav(false)
+  }
+
+  const switchDevice = async (deviceId: string) => {
+    try {
+      await SwitchDevice(deviceId)
+      const [id, devices] = await Promise.all([GetActiveDeviceID(), GetKnownDevices()])
+      if (id) useAppStore.getState().setActiveDeviceId(id)
+      if (devices) useAppStore.getState().setKnownDevices(devices)
+      GetInclusions().then(inc => {
+        if (!inc) return
+        useAppStore.setState({
+          includedPlaylists: new Set(inc.playlists || []),
+          includedAlbums: new Set(inc.albums || []),
+          includedArtists: new Set(inc.artists || []),
+          includedBooks: new Set(inc.books || []),
+          includedPodcasts: new Set(inc.podcasts || []),
+        })
+      }).catch(() => {})
+    } catch {}
+    setSwitcherOpen(false)
   }
 
   const reconnectAbs = async () => {
@@ -165,7 +189,64 @@ export function Sidebar() {
         </button>
       )}
 
-      {!ipod && (
+      {!ipod && activeKnownDevice && (
+        <div className="mx-3 mt-3 mb-3 p-3 rounded-lg bg-sidebar-accent opacity-70">
+          <div className="flex items-center gap-2.5 mb-1">
+            <IPodIcon size={36} icon={activeKnownDevice.icon} className="shrink-0 opacity-60" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center min-w-0">
+                <span className="text-sm font-medium text-sidebar-accent-foreground truncate min-w-0">
+                  {activeKnownDevice.name || 'iPod'}
+                </span>
+                {knownDevices.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setSwitcherOpen(!switcherOpen)}
+                    className="shrink-0 ml-auto h-6 w-6 p-0 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 hover:bg-sidebar-border/50"
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", switcherOpen && "rotate-180")} />
+                  </Button>
+                )}
+              </div>
+              <div className="text-[11px] text-sidebar-foreground/60">
+                {[activeKnownDevice.family, activeKnownDevice.generation].filter(Boolean).join(' \u00B7 ')}
+              </div>
+              {activeKnownDevice.capacity && (
+                <div className="text-[11px] text-sidebar-foreground/60">{activeKnownDevice.capacity}</div>
+              )}
+            </div>
+          </div>
+          {switcherOpen && knownDevices.length > 1 && (
+            <div className="mt-1.5 pt-1.5 border-t border-sidebar-border/50 space-y-0.5">
+              {knownDevices.map(d => (
+                <button
+                  key={d.deviceId}
+                  onClick={() => switchDevice(d.deviceId)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-1.5 py-1 rounded text-xs text-left hover:bg-sidebar-border/50 transition-colors',
+                    d.deviceId === activeDeviceId && 'bg-sidebar-border/50 font-medium'
+                  )}
+                >
+                  <IPodIcon size={16} icon={d.icon} className="shrink-0" />
+                  <span className="truncate">{d.name || 'iPod'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[11px] text-sidebar-foreground/50">Offline</span>
+            <button
+              onClick={scanForIPod}
+              disabled={scanningIPod}
+              className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
+            >
+              {scanningIPod ? 'Scanning...' : 'Scan'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!ipod && !activeKnownDevice && (
         <button
           onClick={scanForIPod}
           disabled={scanningIPod}
