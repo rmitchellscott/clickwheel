@@ -31,6 +31,13 @@ func OpenDevice(info *DeviceInfo) (*Device, error) {
 		return nil, err
 	}
 
+	pcPath := filepath.Join(info.MountPoint, "iPod_Control", "iTunes", "Play Counts")
+	if pcData, err := os.ReadFile(pcPath); err == nil {
+		if entries, err := itunesdb.ParsePlayCounts(pcData); err == nil {
+			itunesdb.MergePlayCounts(db, entries)
+		}
+	}
+
 	return &Device{Info: info, DB: db}, nil
 }
 
@@ -41,5 +48,10 @@ func (d *Device) Save() error {
 	}
 
 	data := d.DB.Serialize()
-	return os.WriteFile(filepath.Join(itunesDir, "iTunesDB"), data, 0644)
+	if err := os.WriteFile(filepath.Join(itunesDir, "iTunesDB"), data, 0644); err != nil {
+		return err
+	}
+
+	os.Remove(filepath.Join(itunesDir, "Play Counts"))
+	return nil
 }

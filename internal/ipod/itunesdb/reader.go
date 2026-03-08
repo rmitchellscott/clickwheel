@@ -25,6 +25,9 @@ func Parse(data []byte) (*Database, error) {
 	numDataSets := le32(data, 20)
 
 	db := &Database{}
+	if headerLen >= 0x70 {
+		db.TZOffset = int32(le32(data, 0x6C))
+	}
 	pos := headerLen
 
 	for i := uint32(0); i < numDataSets && pos+12 <= totalLen; i++ {

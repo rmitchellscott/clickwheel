@@ -32,6 +32,7 @@ const (
 type Database struct {
 	Tracks    []*Track
 	Playlists []*Playlist
+	TZOffset  int32 // seconds east of UTC, from mhbd header 0x6C
 }
 
 type Track struct {
@@ -204,6 +205,9 @@ func NewDatabase() *Database {
 
 func (db *Database) AddTrack(t *Track) {
 	db.Tracks = append(db.Tracks, t)
+	if t.MediaType == MediaTypePodcast {
+		return
+	}
 	for _, pl := range db.Playlists {
 		if pl.IsMaster {
 			pl.Tracks = append(pl.Tracks, t)

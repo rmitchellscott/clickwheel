@@ -21,6 +21,8 @@ func Detect() (*DeviceInfo, error) {
 }
 
 func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {
+	di := &DeviceInfo{MountPoint: mount, Name: name}
+
 	var free, total, available uint64
 	path, _ := windows.UTF16PtrFromString(mount)
 	err := windows.GetDiskFreeSpaceEx(path,
@@ -28,14 +30,11 @@ func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {
 		(*uint64)(unsafe.Pointer(&total)),
 		(*uint64)(unsafe.Pointer(&free)),
 	)
-	if err != nil {
-		return &DeviceInfo{MountPoint: mount, Name: name}, nil
+	if err == nil {
+		di.FreeSpace = int64(free)
+		di.TotalSpace = int64(total)
 	}
 
-	return &DeviceInfo{
-		MountPoint: mount,
-		Name:       name,
-		FreeSpace:  int64(free),
-		TotalSpace: int64(total),
-	}, nil
+	fillDeviceInfo(di, ReadSysInfo(mount))
+	return di, nil
 }

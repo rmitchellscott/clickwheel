@@ -3,12 +3,15 @@ package itunesdb
 import (
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+var updateGolden = flag.Bool("update-golden", false, "regenerate golden test files")
 
 type goldenDataset struct {
 	Type       int              `json:"type"`
@@ -238,7 +241,7 @@ func addAudiobook(db *Database) {
 }
 
 func addPodcast(db *Database) {
-	db.AddTrack(&Track{
+	ep1 := &Track{
 		Title: "Episode 1: Pilot", Artist: "Podcast Host", Album: "My Podcast",
 		Path: ":iPod_Control:Music:F00:POD1.mp3", Size: 30000000, Duration: 1800000,
 		BitRate: 128, SampleRate: 44100, FiletypeKey: "mp3", MediaType: MediaTypePodcast,
@@ -246,8 +249,8 @@ func addPodcast(db *Database) {
 		PodcastEnclosureURL: "https://example.com/ep1.mp3",
 		PodcastRSSURL:       "https://example.com/feed.xml",
 		Category:            "Technology",
-	})
-	db.AddTrack(&Track{
+	}
+	ep2 := &Track{
 		Title: "Episode 2: Follow Up", Artist: "Podcast Host", Album: "My Podcast",
 		Path: ":iPod_Control:Music:F01:POD2.mp3", Size: 35000000, Duration: 2100000,
 		BitRate: 128, SampleRate: 44100, FiletypeKey: "mp3", MediaType: MediaTypePodcast,
@@ -255,6 +258,13 @@ func addPodcast(db *Database) {
 		PodcastEnclosureURL: "https://example.com/ep2.mp3",
 		PodcastRSSURL:       "https://example.com/feed.xml",
 		Category:            "Technology",
+	}
+	db.AddTrack(ep1)
+	db.AddTrack(ep2)
+	db.Playlists = append(db.Playlists, &Playlist{
+		Name:        "Podcasts",
+		PodcastFlag: 1,
+		Tracks:      []*Track{ep1, ep2},
 	})
 }
 
@@ -290,7 +300,6 @@ func addUnicode(db *Database) {
 }
 
 func addMixed(db *Database) {
-	// 2 music + 1 audiobook + 1 podcast
 	db.AddTrack(&Track{
 		Title: "Track One", Artist: "Artist A", Album: "Album X", Genre: "Rock",
 		Path: ":iPod_Control:Music:F00:AAAA.mp3", Size: 5000000, Duration: 240000,
@@ -309,7 +318,7 @@ func addMixed(db *Database) {
 		FiletypeKey: "m4b", MediaType: MediaTypeAudiobook,
 		RememberPosition: 1, SkipWhenShuffling: 1, BookmarkTime: 1200000,
 	})
-	db.AddTrack(&Track{
+	podEp := &Track{
 		Title: "Episode 1: Pilot", Artist: "Podcast Host", Album: "My Podcast",
 		Path: ":iPod_Control:Music:F00:POD1.mp3", Size: 30000000, Duration: 1800000,
 		BitRate: 128, SampleRate: 44100, FiletypeKey: "mp3", MediaType: MediaTypePodcast,
@@ -317,6 +326,12 @@ func addMixed(db *Database) {
 		PodcastEnclosureURL: "https://example.com/ep1.mp3",
 		PodcastRSSURL:       "https://example.com/feed.xml",
 		Category:            "Technology",
+	}
+	db.AddTrack(podEp)
+	db.Playlists = append(db.Playlists, &Playlist{
+		Name:        "Podcasts",
+		PodcastFlag: 1,
+		Tracks:      []*Track{podEp},
 	})
 }
 
@@ -419,6 +434,25 @@ func TestGoldenFiles(t *testing.T) {
 			name := fmt.Sprintf("golden_%s_%s", scenario, profile)
 			t.Run(name, func(t *testing.T) {
 				jsonPath := filepath.Join(testdataDir, name+".json")
+
+				db := buildTestDB(scenario, caps)
+				ourData := SerializeDatabase(db, caps)
+				ours := extractStructure(ourData)
+				if ours == nil {
+					t.Fatal("failed to extract structure from our output")
+				}
+
+				if *updateGolden {
+					out, err := json.MarshalIndent(ours, "", "  ")
+					if err != nil {
+						t.Fatalf("marshal golden: %v", err)
+					}
+					if err := os.WriteFile(jsonPath, append(out, '\n'), 0644); err != nil {
+						t.Fatalf("write golden: %v", err)
+					}
+					return
+				}
+
 				jsonData, err := os.ReadFile(jsonPath)
 				if err != nil {
 					t.Skipf("golden file not found: %s", jsonPath)
@@ -428,13 +462,6 @@ func TestGoldenFiles(t *testing.T) {
 				var golden goldenStructure
 				if err := json.Unmarshal(jsonData, &golden); err != nil {
 					t.Fatalf("parse golden JSON: %v", err)
-				}
-
-				db := buildTestDB(scenario, caps)
-				ourData := SerializeDatabase(db, caps)
-				ours := extractStructure(ourData)
-				if ours == nil {
-					t.Fatal("failed to extract structure from our output")
 				}
 
 				compareStructures(t, &golden, ours)
@@ -549,4 +576,298 @@ func intSliceToStr(s []int) string {
 		parts[i] = fmt.Sprintf("%d", v)
 	}
 	return strings.Join(parts, ",")
+}
+
+func TestPodcastDatabaseStructure(t *testing.T) {
+	profiles := []struct {
+		name string
+		caps *DeviceCapabilities
+	}{
+		{"ipod4g", capsForProfile("ipod4g")},
+		{"ipodvideo5g", capsForProfile("ipodvideo5g")},
+		{"classic", capsForProfile("classic")},
+	}
+
+	for _, p := range profiles {
+		t.Run(p.name, func(t *testing.T) {
+			db := buildTestDB("podcast", p.caps)
+			data := SerializeDatabase(db, p.caps)
+
+			if len(data) < 244 || string(data[0:4]) != "mhbd" {
+				t.Fatal("invalid mhbd header")
+			}
+
+			hdrLen := int(binary.LittleEndian.Uint32(data[4:8]))
+			numDS := int(binary.LittleEndian.Uint32(data[0x14:0x18]))
+
+			dsTypes := make([]int, 0, numDS)
+			pos := hdrLen
+			for i := 0; i < numDS && pos+16 <= len(data); i++ {
+				dsType := int(binary.LittleEndian.Uint32(data[pos+12 : pos+16]))
+				dsTypes = append(dsTypes, dsType)
+				pos += int(binary.LittleEndian.Uint32(data[pos+8 : pos+12]))
+			}
+
+			if dsTypes[0] != 1 {
+				t.Errorf("first dataset should be type 1, got %d", dsTypes[0])
+			}
+			type3Idx := -1
+			type2Idx := -1
+			for i, dt := range dsTypes {
+				if dt == 3 && type3Idx == -1 {
+					type3Idx = i
+				}
+				if dt == 2 && type2Idx == -1 {
+					type2Idx = i
+				}
+			}
+			if type3Idx == -1 {
+				t.Fatal("missing mhsd type 3 (podcast dataset)")
+			}
+			if type2Idx == -1 {
+				t.Fatal("missing mhsd type 2 (playlist dataset)")
+			}
+			if type3Idx >= type2Idx {
+				t.Errorf("type 3 (idx %d) must come before type 2 (idx %d)", type3Idx, type2Idx)
+			}
+
+			pos = hdrLen
+			for i := 0; i < numDS && pos+16 <= len(data); i++ {
+				dsTotal := int(binary.LittleEndian.Uint32(data[pos+8 : pos+12]))
+				dsType := int(binary.LittleEndian.Uint32(data[pos+12 : pos+16]))
+				dsHdr := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+
+				if dsType == 1 {
+					mhltOff := pos + dsHdr
+					mhltHdr := int(binary.LittleEndian.Uint32(data[mhltOff+4 : mhltOff+8]))
+					trackCount := int(binary.LittleEndian.Uint32(data[mhltOff+8 : mhltOff+12]))
+
+					tOff := mhltOff + mhltHdr
+					for ti := 0; ti < trackCount; ti++ {
+						tTotal := int(binary.LittleEndian.Uint32(data[tOff+8 : tOff+12]))
+						mediaType := binary.LittleEndian.Uint32(data[tOff+0xD0 : tOff+0xD4])
+
+						if mediaType == MediaTypePodcast {
+							podFlag := data[tOff+0xA7]
+							remPos := data[tOff+0xA6]
+							skipShuf := data[tOff+0xA5]
+
+							if podFlag != 1 {
+								t.Errorf("track %d: PodcastFlag=%d, want 1", ti, podFlag)
+							}
+							if remPos != 1 {
+								t.Errorf("track %d: RememberPosition=%d, want 1", ti, remPos)
+							}
+							if skipShuf != 1 {
+								t.Errorf("track %d: SkipWhenShuffling=%d, want 1", ti, skipShuf)
+							}
+						}
+						tOff += tTotal
+					}
+				}
+
+				pos += dsTotal
+			}
+		})
+	}
+}
+
+func TestPodcastType3GroupedMHIPs(t *testing.T) {
+	caps := capsForProfile("ipod4g")
+	db := buildTestDB("podcast", caps)
+	data := SerializeDatabase(db, caps)
+
+	hdrLen := int(binary.LittleEndian.Uint32(data[4:8]))
+	numDS := int(binary.LittleEndian.Uint32(data[0x14:0x18]))
+
+	pos := hdrLen
+	for i := 0; i < numDS && pos+16 <= len(data); i++ {
+		dsTotal := int(binary.LittleEndian.Uint32(data[pos+8 : pos+12]))
+		dsType := int(binary.LittleEndian.Uint32(data[pos+12 : pos+16]))
+		dsHdr := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+
+		if dsType == 3 {
+			mhlpOff := pos + dsHdr
+			mhlpHdr := int(binary.LittleEndian.Uint32(data[mhlpOff+4 : mhlpOff+8]))
+			plCount := int(binary.LittleEndian.Uint32(data[mhlpOff+8 : mhlpOff+12]))
+
+			plOff := mhlpOff + mhlpHdr
+			for pi := 0; pi < plCount; pi++ {
+				plTotal := int(binary.LittleEndian.Uint32(data[plOff+8 : plOff+12]))
+				isMaster := binary.LittleEndian.Uint32(data[plOff+0x14 : plOff+0x18])
+				podFlag := data[plOff+0x2A]
+
+				if isMaster == 0 && podFlag == 1 {
+					verifyGroupedMHIPs(t, data, plOff, plTotal)
+				}
+				plOff += plTotal
+			}
+		}
+		pos += dsTotal
+	}
+}
+
+func verifyGroupedMHIPs(t *testing.T, data []byte, plOff, plTotal int) {
+	t.Helper()
+
+	mhypHdr := int(binary.LittleEndian.Uint32(data[plOff+4 : plOff+8]))
+	mhodCount := int(binary.LittleEndian.Uint32(data[plOff+0x0C : plOff+0x10]))
+
+	mhipStart := plOff + mhypHdr
+	for mi := 0; mi < mhodCount; mi++ {
+		if string(data[mhipStart:mhipStart+4]) != "mhod" {
+			break
+		}
+		mhipStart += int(binary.LittleEndian.Uint32(data[mhipStart+8 : mhipStart+12]))
+	}
+
+	plEnd := plOff + plTotal
+	groupIDs := map[uint32]bool{}
+	memberCount := 0
+	groupCount := 0
+
+	off := mhipStart
+	for off+mhipHeaderSize <= plEnd {
+		if string(data[off:off+4]) != "mhip" {
+			break
+		}
+		mhipTotal := int(binary.LittleEndian.Uint32(data[off+8 : off+12]))
+		groupFlag := binary.LittleEndian.Uint32(data[off+0x10 : off+0x14])
+		groupID := binary.LittleEndian.Uint32(data[off+0x14 : off+0x18])
+		trackID := binary.LittleEndian.Uint32(data[off+0x18 : off+0x1C])
+		groupRef := binary.LittleEndian.Uint32(data[off+0x20 : off+0x24])
+
+		if groupFlag == 256 {
+			groupCount++
+			groupIDs[groupID] = true
+			if trackID != 0 {
+				t.Errorf("group header MHIP has trackID=%d, want 0", trackID)
+			}
+		} else {
+			memberCount++
+			if !groupIDs[groupRef] {
+				t.Errorf("member MHIP groupRef=%d not found in group headers", groupRef)
+			}
+			if trackID == 0 {
+				t.Error("member MHIP has trackID=0")
+			}
+		}
+
+		off += mhipTotal
+	}
+
+	if groupCount == 0 {
+		t.Error("no group header MHIPs found in podcast playlist type 3")
+	}
+	if memberCount == 0 {
+		t.Error("no member MHIPs found in podcast playlist type 3")
+	}
+}
+
+func TestPodcastTracksNotInMasterPlaylist(t *testing.T) {
+	caps := capsForProfile("ipod4g")
+	db := buildTestDB("podcast", caps)
+
+	for _, pl := range db.Playlists {
+		if pl.IsMaster {
+			for _, tr := range pl.Tracks {
+				if tr.MediaType == MediaTypePodcast {
+					t.Errorf("podcast track %q found in master playlist", tr.Title)
+				}
+			}
+		}
+	}
+
+	data := SerializeDatabase(db, caps)
+	s := extractStructure(data)
+
+	for _, ds := range s.Datasets {
+		if ds.Type == 2 || ds.Type == 3 {
+			for _, pl := range ds.Playlists {
+				if pl.IsMaster == 1 {
+					if pl.ItemCount != 0 {
+						t.Errorf("dataset %d master playlist has %d items, want 0 (podcast-only DB)", ds.Type, pl.ItemCount)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestMixedMediaMasterPlaylistExcludesPodcasts(t *testing.T) {
+	caps := capsForProfile("ipod4g")
+	db := buildTestDB("mixed", caps)
+
+	for _, pl := range db.Playlists {
+		if pl.IsMaster {
+			for _, tr := range pl.Tracks {
+				if tr.MediaType == MediaTypePodcast {
+					t.Errorf("podcast track %q found in master playlist", tr.Title)
+				}
+			}
+			if len(pl.Tracks) != 3 {
+				t.Errorf("master playlist has %d tracks, want 3 (2 music + 1 audiobook)", len(pl.Tracks))
+			}
+		}
+	}
+}
+
+func TestMixedMediaPodcastFlags(t *testing.T) {
+	caps := capsForProfile("ipod4g")
+	db := buildTestDB("mixed", caps)
+	data := SerializeDatabase(db, caps)
+
+	hdrLen := int(binary.LittleEndian.Uint32(data[4:8]))
+	numDS := int(binary.LittleEndian.Uint32(data[0x14:0x18]))
+
+	pos := hdrLen
+	podcastCount := 0
+	musicCount := 0
+	audiobookCount := 0
+
+	for i := 0; i < numDS && pos+16 <= len(data); i++ {
+		dsTotal := int(binary.LittleEndian.Uint32(data[pos+8 : pos+12]))
+		dsType := int(binary.LittleEndian.Uint32(data[pos+12 : pos+16]))
+		dsHdr := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+
+		if dsType == 1 {
+			mhltOff := pos + dsHdr
+			mhltHdr := int(binary.LittleEndian.Uint32(data[mhltOff+4 : mhltOff+8]))
+			trackCount := int(binary.LittleEndian.Uint32(data[mhltOff+8 : mhltOff+12]))
+
+			tOff := mhltOff + mhltHdr
+			for ti := 0; ti < trackCount; ti++ {
+				tTotal := int(binary.LittleEndian.Uint32(data[tOff+8 : tOff+12]))
+				mediaType := binary.LittleEndian.Uint32(data[tOff+0xD0 : tOff+0xD4])
+				podFlag := data[tOff+0xA7]
+
+				switch mediaType {
+				case MediaTypeMusic:
+					musicCount++
+					if podFlag != 0 {
+						t.Errorf("music track %d has PodcastFlag=%d", ti, podFlag)
+					}
+				case MediaTypePodcast:
+					podcastCount++
+					if podFlag != 1 {
+						t.Errorf("podcast track %d has PodcastFlag=%d", ti, podFlag)
+					}
+				case MediaTypeAudiobook:
+					audiobookCount++
+				}
+				tOff += tTotal
+			}
+		}
+		pos += dsTotal
+	}
+
+	if musicCount != 2 {
+		t.Errorf("expected 2 music tracks, got %d", musicCount)
+	}
+	if podcastCount != 1 {
+		t.Errorf("expected 1 podcast track, got %d", podcastCount)
+	}
+	if audiobookCount != 1 {
+		t.Errorf("expected 1 audiobook track, got %d", audiobookCount)
+	}
 }

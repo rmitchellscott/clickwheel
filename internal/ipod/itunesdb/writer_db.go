@@ -44,14 +44,15 @@ func SerializeDatabase(db *Database, caps *DeviceCapabilities) []byte {
 	}
 	mhsdType1 := WriteMHSD(1, WriteMHLT(trackChunks))
 
-	trackIDs := make([]uint32, len(db.Tracks))
-	for i, t := range db.Tracks {
-		trackIDs[i] = t.UniqueID
+	var trackIDs []uint32
+	for _, t := range db.Tracks {
+		if t.MediaType != MediaTypePodcast {
+			trackIDs = append(trackIDs, t.UniqueID)
+		}
 	}
 
-	playlistBody := buildPlaylistBody(db, id0x24, trackIDs)
-	mhsdType3 := WriteMHSD(3, playlistBody)
-	mhsdType2 := WriteMHSD(2, playlistBody)
+	mhsdType2 := WriteMHSD(2, buildPlaylistBody(db, id0x24, trackIDs, false))
+	mhsdType3 := WriteMHSD(3, buildPlaylistBody(db, id0x24, trackIDs, true))
 
 	mhsdType4 := WriteMHSD(4, WriteMHLA(albums))
 	mhsdType8 := WriteMHSD(8, WriteMHLI(artists))
@@ -124,7 +125,7 @@ func buildMHBDHeader(numDataSets int, dbID, id0x24 uint64, version uint32, bodyL
 	return buf
 }
 
-func buildPlaylistBody(db *Database, id0x24 uint64, trackIDs []uint32) []byte {
+func buildPlaylistBody(db *Database, id0x24 uint64, trackIDs []uint32, podcastGrouped bool) []byte {
 	var playlistChunks [][]byte
 
 	for _, pl := range db.Playlists {
@@ -141,7 +142,7 @@ func buildPlaylistBody(db *Database, id0x24 uint64, trackIDs []uint32) []byte {
 		}
 		plTrackIDs := resolvePlaylistTrackIDs(pl, db.Tracks)
 		playlistChunks = append(playlistChunks,
-			WriteMHYP(pl, plTrackIDs, id0x24, false, db.Tracks))
+			writeMHYPWithFormat(pl, plTrackIDs, id0x24, false, db.Tracks, podcastGrouped))
 	}
 
 	return WriteMHLP(playlistChunks)

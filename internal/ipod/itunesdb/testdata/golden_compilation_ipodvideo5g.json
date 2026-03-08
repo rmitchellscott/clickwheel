@@ -1,5 +1,5 @@
 {
-  "size": 10446,
+  "size": 8022,
   "version": 25,
   "num_datasets": 8,
   "datasets": [
@@ -10,7 +10,7 @@
       "child_count": 3,
       "tracks": [
         {
-          "track_id": 7,
+          "track_id": 1,
           "mhod_count": 6,
           "mhod_types": [
             1,
@@ -22,7 +22,7 @@
           ]
         },
         {
-          "track_id": 8,
+          "track_id": 2,
           "mhod_count": 6,
           "mhod_types": [
             1,
@@ -34,7 +34,7 @@
           ]
         },
         {
-          "track_id": 9,
+          "track_id": 3,
           "mhod_count": 6,
           "mhod_types": [
             1,
@@ -49,12 +49,12 @@
     },
     {
       "type": 3,
-      "total_len": 2652,
+      "total_len": 1440,
       "child_magic": "mhlp",
       "child_count": 1,
       "playlists": [
         {
-          "mhod_count": 20,
+          "mhod_count": 2,
           "item_count": 3,
           "is_master": 1
         }
@@ -62,12 +62,12 @@
     },
     {
       "type": 2,
-      "total_len": 2652,
+      "total_len": 1440,
       "child_magic": "mhlp",
       "child_count": 1,
       "playlists": [
         {
-          "mhod_count": 20,
+          "mhod_count": 2,
           "item_count": 3,
           "is_master": 1
         }
@@ -89,22 +89,19 @@
       "type": 6,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 10,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 5,
       "total_len": 188,
       "child_magic": "mhlp",
-      "child_count": 0,
-      "playlists": []
+      "child_count": 0
     }
   ]
 }

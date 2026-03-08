@@ -40,15 +40,14 @@ func Detect() (*DeviceInfo, error) {
 }
 
 func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {
+	di := &DeviceInfo{MountPoint: mount, Name: name}
+
 	var stat unix.Statfs_t
-	if err := unix.Statfs(mount, &stat); err != nil {
-		return &DeviceInfo{MountPoint: mount, Name: name}, nil
+	if err := unix.Statfs(mount, &stat); err == nil {
+		di.FreeSpace = int64(stat.Bfree) * int64(stat.Bsize)
+		di.TotalSpace = int64(stat.Blocks) * int64(stat.Bsize)
 	}
 
-	return &DeviceInfo{
-		MountPoint: mount,
-		Name:       name,
-		FreeSpace:  int64(stat.Bfree) * int64(stat.Bsize),
-		TotalSpace: int64(stat.Blocks) * int64(stat.Bsize),
-	}, nil
+	fillDeviceInfo(di, ReadSysInfo(mount))
+	return di, nil
 }

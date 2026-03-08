@@ -53,6 +53,10 @@ func splFieldType(fieldID uint32) int {
 
 
 func WriteMHYP(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaster bool, tracks []*Track) []byte {
+	return writeMHYPWithFormat(pl, trackIDs, id0x24, isMaster, tracks, false)
+}
+
+func writeMHYPWithFormat(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaster bool, tracks []*Track, podcastGrouped bool) []byte {
 	playlistID := rand.Uint64()
 	now := MacTimestamp(time.Now())
 
@@ -60,8 +64,16 @@ func WriteMHYP(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaster bool, tr
 	mhodPrefs := WriteMHODPlaylistPrefs()
 
 	var items []byte
-	for i, tid := range trackIDs {
-		items = append(items, WriteMHIP(tid, i)...)
+	itemCount := uint32(len(trackIDs))
+
+	if podcastGrouped && pl.PodcastFlag == 1 {
+		var mhipCount int
+		items, mhipCount = WritePodcastMHIPs(pl, tracks)
+		itemCount = uint32(mhipCount)
+	} else {
+		for i, tid := range trackIDs {
+			items = append(items, WriteMHIP(tid, i)...)
+		}
 	}
 
 	mhodCount := uint32(2)
@@ -72,7 +84,7 @@ func WriteMHYP(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaster bool, tr
 	binary.LittleEndian.PutUint32(buf[0x04:0x08], mhypHeaderSize)
 	binary.LittleEndian.PutUint32(buf[0x08:0x0C], totalLen)
 	binary.LittleEndian.PutUint32(buf[0x0C:0x10], mhodCount)
-	binary.LittleEndian.PutUint32(buf[0x10:0x14], uint32(len(trackIDs)))
+	binary.LittleEndian.PutUint32(buf[0x10:0x14], itemCount)
 
 	if isMaster {
 		binary.LittleEndian.PutUint32(buf[0x14:0x18], 1)
@@ -81,6 +93,7 @@ func WriteMHYP(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaster bool, tr
 	binary.LittleEndian.PutUint32(buf[0x18:0x1C], now)
 	binary.LittleEndian.PutUint64(buf[0x1C:0x24], playlistID)
 	binary.LittleEndian.PutUint16(buf[0x28:0x2A], 1)
+	buf[0x2A] = pl.PodcastFlag
 
 	if !isMaster {
 		binary.LittleEndian.PutUint64(buf[0x3C:0x44], id0x24)
@@ -112,6 +125,76 @@ func WriteMHIP(trackID uint32, position int) []byte {
 	binary.LittleEndian.PutUint32(buf[0x18:0x1C], trackID)
 
 	return append(buf, posMHOD...)
+}
+
+func writeMHIPPodcast(childCount, groupFlag, groupID, trackID, groupRef uint32) []byte {
+	buf := make([]byte, mhipHeaderSize)
+	copy(buf[0:4], "mhip")
+	binary.LittleEndian.PutUint32(buf[0x04:0x08], mhipHeaderSize)
+	binary.LittleEndian.PutUint32(buf[0x0C:0x10], childCount)
+	binary.LittleEndian.PutUint32(buf[0x10:0x14], groupFlag)
+	binary.LittleEndian.PutUint32(buf[0x14:0x18], groupID)
+	binary.LittleEndian.PutUint32(buf[0x18:0x1C], trackID)
+	binary.LittleEndian.PutUint32(buf[0x20:0x24], groupRef)
+	return buf
+}
+
+func WritePodcastMHIPs(pl *Playlist, allTracks []*Track) ([]byte, int) {
+	trackByID := make(map[uint32]*Track)
+	for _, t := range allTracks {
+		trackByID[t.UniqueID] = t
+	}
+
+	type group struct {
+		name   string
+		tracks []uint32
+	}
+	groupOrder := []string{}
+	groups := map[string]*group{}
+
+	for _, t := range pl.Tracks {
+		album := t.Album
+		if album == "" {
+			album = t.ShowName
+		}
+		g, ok := groups[album]
+		if !ok {
+			g = &group{name: album}
+			groups[album] = g
+			groupOrder = append(groupOrder, album)
+		}
+		g.tracks = append(g.tracks, t.UniqueID)
+	}
+
+	var result []byte
+	mhipCount := 0
+	nextID := uint32(1)
+
+	for _, name := range groupOrder {
+		g := groups[name]
+		groupID := nextID
+		nextID++
+
+		groupHeader := writeMHIPPodcast(1, 256, groupID, 0, 0)
+		titleMHOD := WriteMHODString(1, g.name)
+		binary.LittleEndian.PutUint32(groupHeader[0x08:0x0C], uint32(len(groupHeader))+uint32(len(titleMHOD)))
+		result = append(result, groupHeader...)
+		result = append(result, titleMHOD...)
+		mhipCount++
+
+		for _, tid := range g.tracks {
+			mhipID := nextID
+			nextID++
+			memberMHIP := writeMHIPPodcast(1, 0, mhipID, tid, groupID)
+			posMHOD := WriteMHODPosition(int(mhipID))
+			binary.LittleEndian.PutUint32(memberMHIP[0x08:0x0C], uint32(len(memberMHIP))+uint32(len(posMHOD)))
+			result = append(result, memberMHIP...)
+			result = append(result, posMHOD...)
+			mhipCount++
+		}
+	}
+
+	return result, mhipCount
 }
 
 func WriteMHODPosition(position int) []byte {

@@ -19,14 +19,13 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:     "clickwheel",
-		Width:     900,
+		Width:     1050,
 		Height:    700,
-		MinWidth:  640,
+		MinWidth:  800,
 		MinHeight: 500,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 250, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{

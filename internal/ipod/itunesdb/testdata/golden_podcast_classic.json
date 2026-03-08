@@ -1,5 +1,5 @@
 {
-  "size": 8998,
+  "size": 8398,
   "version": 48,
   "num_datasets": 8,
   "datasets": [
@@ -10,7 +10,7 @@
       "child_count": 2,
       "tracks": [
         {
-          "track_id": 5,
+          "track_id": 1,
           "mhod_count": 7,
           "mhod_types": [
             1,
@@ -23,7 +23,7 @@
           ]
         },
         {
-          "track_id": 6,
+          "track_id": 2,
           "mhod_count": 7,
           "mhod_types": [
             1,
@@ -39,33 +39,43 @@
     },
     {
       "type": 3,
-      "total_len": 2496,
+      "total_len": 2344,
       "child_magic": "mhlp",
-      "child_count": 1,
+      "child_count": 2,
       "playlists": [
         {
-          "mhod_count": 20,
-          "item_count": 2,
+          "mhod_count": 2,
+          "item_count": 0,
           "is_master": 1
+        },
+        {
+          "mhod_count": 2,
+          "item_count": 3,
+          "is_master": 0
         }
       ]
     },
     {
       "type": 2,
-      "total_len": 2496,
+      "total_len": 2208,
       "child_magic": "mhlp",
-      "child_count": 1,
+      "child_count": 2,
       "playlists": [
         {
-          "mhod_count": 20,
-          "item_count": 2,
+          "mhod_count": 2,
+          "item_count": 0,
           "is_master": 1
+        },
+        {
+          "mhod_count": 2,
+          "item_count": 2,
+          "is_master": 0
         }
       ]
     },
     {
       "type": 4,
-      "total_len": 496,
+      "total_len": 336,
       "child_magic": "mhla",
       "child_count": 1
     },
@@ -79,22 +89,19 @@
       "type": 6,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 10,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 5,
       "total_len": 188,
       "child_magic": "mhlp",
-      "child_count": 0,
-      "playlists": []
+      "child_count": 0
     }
   ]
 }

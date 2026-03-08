@@ -1,8 +1,9 @@
 package audiobookshelf
 
 type Library struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType"`
 }
 
 type LibrariesResponse struct {
@@ -10,8 +11,9 @@ type LibrariesResponse struct {
 }
 
 type Book struct {
-	ID    string   `json:"id"`
+	ID    string    `json:"id"`
 	Media BookMedia `json:"media"`
+	Size  int64     `json:"size"`
 }
 
 type BookMedia struct {
@@ -38,6 +40,7 @@ type FileMetadata struct {
 	Filename string `json:"filename"`
 	Ext      string `json:"ext"`
 	Path     string `json:"path"`
+	Size     int64  `json:"size"`
 }
 
 type Chapter struct {
@@ -51,13 +54,42 @@ type BooksResponse struct {
 	Results []Book `json:"results"`
 }
 
+type Podcast struct {
+	ID    string       `json:"id"`
+	Media PodcastMedia `json:"media"`
+}
+
+type PodcastMedia struct {
+	Metadata    PodcastMetadata  `json:"metadata"`
+	Episodes    []PodcastEpisode `json:"episodes"`
+	NumEpisodes int              `json:"numEpisodes"`
+	Size        int64            `json:"size"`
+}
+
+type PodcastMetadata struct {
+	Title  string `json:"title"`
+	Author string `json:"author"`
+}
+
+type PodcastEpisode struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	AudioFile   AudioFile `json:"audioFile"`
+	PublishedAt int64     `json:"publishedAt"`
+}
+
+type PodcastsResponse struct {
+	Results []Podcast `json:"results"`
+}
+
 type MediaProgress struct {
-	ID          string  `json:"id"`
-	CurrentTime float64 `json:"currentTime"`
-	Duration    float64 `json:"duration"`
-	Progress    float64 `json:"progress"`
-	IsFinished  bool    `json:"isFinished"`
-	UpdatedAt   int64   `json:"updatedAt"`
+	ID            string  `json:"id"`
+	LibraryItemID string  `json:"libraryItemId"`
+	CurrentTime   float64 `json:"currentTime"`
+	Duration      float64 `json:"duration"`
+	Progress      float64 `json:"progress"`
+	IsFinished    bool    `json:"isFinished"`
+	LastUpdate    int64   `json:"lastUpdate"`
 }
 
 type MeResponse struct {

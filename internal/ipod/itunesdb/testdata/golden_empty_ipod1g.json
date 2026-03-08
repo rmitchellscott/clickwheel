@@ -1,5 +1,5 @@
 {
-  "size": 2440,
+  "size": 2452,
   "version": 19,
   "num_datasets": 7,
   "datasets": [
@@ -7,12 +7,11 @@
       "type": 1,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 2,
-      "total_len": 1068,
+      "total_len": 1080,
       "child_magic": "mhlp",
       "child_count": 1,
       "playlists": [
@@ -39,22 +38,19 @@
       "type": 6,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 10,
       "total_len": 188,
       "child_magic": "mhlt",
-      "child_count": 0,
-      "tracks": []
+      "child_count": 0
     },
     {
       "type": 5,
       "total_len": 188,
       "child_magic": "mhlp",
-      "child_count": 0,
-      "playlists": []
+      "child_count": 0
     }
   ]
 }

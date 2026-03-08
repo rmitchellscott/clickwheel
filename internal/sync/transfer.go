@@ -14,7 +14,8 @@ import (
 	"clickwheel/internal/audiobookshelf"
 	"clickwheel/internal/ipod"
 	"clickwheel/internal/ipod/itunesdb"
-	"clickwheel/internal/navidrome"
+	"clickwheel/internal/subsonic"
+	"clickwheel/internal/transcode"
 )
 
 var audioExts = map[string]bool{
@@ -23,38 +24,120 @@ var audioExts = map[string]bool{
 	".aac": true, ".wma": true,
 }
 
-func TransferTrack(ctx context.Context, nav *navidrome.Client, dev *ipod.Device, item TrackItem) error {
+func formatExt(format string) string {
+	switch format {
+	case "aac":
+		return ".m4a"
+	case "opus":
+		return ".opus"
+	case "raw":
+		return ".raw"
+	default:
+		return ".mp3"
+	}
+}
+
+func formatFileType(format string) string {
+	switch format {
+	case "aac":
+		return "m4a"
+	default:
+		return format
+	}
+}
+
+type preparedTrack struct {
+	tmpDir   string
+	dataPath string
+	data     []byte
+	item     TrackItem
+	err      error
+}
+
+func (p *preparedTrack) cleanup() {
+	if p.tmpDir != "" {
+		os.RemoveAll(p.tmpDir)
+	}
+}
+
+func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackItem, format string, bitRate int) *preparedTrack {
+	if format == "" {
+		format = "aac"
+	}
+	if bitRate <= 0 {
+		bitRate = 256
+	}
+	ext := formatExt(format)
+	needsXcode := item.Suffix != format && !(item.Suffix == "m4a" && format == "aac")
+
 	tmpDir, err := os.MkdirTemp("", "clickwheel-")
 	if err != nil {
-		return err
+		return &preparedTrack{item: item, err: err}
 	}
-	defer os.RemoveAll(tmpDir)
 
-	srcPath := filepath.Join(tmpDir, "source.mp3")
+	var srcPath string
+	if needsXcode {
+		srcPath = filepath.Join(tmpDir, "source."+item.Suffix)
+	} else {
+		srcPath = filepath.Join(tmpDir, "source"+ext)
+	}
+
 	srcFile, err := os.Create(srcPath)
 	if err != nil {
-		return err
+		os.RemoveAll(tmpDir)
+		return &preparedTrack{item: item, err: err}
 	}
-
-	if err := nav.Stream(item.SourceID, srcFile); err != nil {
+	if err := sub.Download(item.SourceID, srcFile); err != nil {
 		srcFile.Close()
-		return err
+		os.RemoveAll(tmpDir)
+		return &preparedTrack{item: item, err: err}
 	}
 	srcFile.Close()
 
-	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".mp3")
+	var finalPath string
+	if needsXcode {
+		finalPath = filepath.Join(tmpDir, "output"+ext)
+		if err := transcode.Transcode(ctx, srcPath, finalPath, format, bitRate); err != nil {
+			os.RemoveAll(tmpDir)
+			return &preparedTrack{item: item, err: fmt.Errorf("transcoding: %w", err)}
+		}
+	} else {
+		finalPath = srcPath
+	}
+
+	data, err := os.ReadFile(finalPath)
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return &preparedTrack{item: item, err: err}
+	}
+	os.RemoveAll(tmpDir)
+
+	return &preparedTrack{item: item, data: data}
+}
+
+func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int) error {
+	if p.err != nil {
+		return p.err
+	}
+	defer p.cleanup()
+
+	if format == "" {
+		format = "aac"
+	}
+	if bitRate <= 0 {
+		bitRate = 256
+	}
+	ext := formatExt(format)
+
+	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
-
-	data, err := os.ReadFile(srcPath)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	if err := os.WriteFile(destPath, p.data, 0644); err != nil {
 		return err
 	}
 
+	item := p.item
 	track := &itunesdb.Track{
 		UniqueID:    rand.Uint32(),
 		Title:       item.Title,
@@ -65,16 +148,21 @@ func TransferTrack(ctx context.Context, nav *navidrome.Client, dev *ipod.Device,
 		TrackNumber: uint16(item.Track),
 		Year:        uint16(item.Year),
 		Duration:    uint32(item.Duration * 1000),
-		Size:        uint32(len(data)),
-		BitRate:     320,
+		Size:        uint32(len(p.data)),
+		BitRate:     uint32(bitRate),
 		SampleRate:  44100,
-		FiletypeKey: "mp3",
+		FiletypeKey: formatFileType(format),
 		MediaType:   itunesdb.MediaTypeMusic,
 		SourceID:    item.SourceID,
 	}
 
 	dev.DB.AddTrack(track)
 	return nil
+}
+
+func TransferTrack(ctx context.Context, sub *subsonic.Client, dev *ipod.Device, item TrackItem, format string, bitRate int) error {
+	p := DownloadAndTranscode(ctx, sub, item, format, bitRate)
+	return InstallTrack(dev, p, format, bitRate)
 }
 
 func bookCacheDir() (string, error) {
@@ -181,6 +269,97 @@ func TransferBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Dev
 		BitRate:           64,
 		SampleRate:        44100,
 		MediaType:         itunesdb.MediaTypeAudiobook,
+		RememberPosition:  1,
+		SkipWhenShuffling: 1,
+		BookmarkTime:      bookmarkTime,
+		SourceID:          item.SourceID,
+	}
+
+	dev.DB.AddTrack(track)
+	return nil
+}
+
+func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item PodcastEpisodeItem, onStep func(string)) error {
+	tmpDir, err := os.MkdirTemp("", "clickwheel-podcast-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	ext := ".mp3"
+	if item.Ext != "" {
+		ext = strings.ToLower(item.Ext)
+	}
+
+	srcPath := filepath.Join(tmpDir, "episode"+ext)
+	srcFile, err := os.Create(srcPath)
+	if err != nil {
+		return err
+	}
+
+	if err := abs.DownloadEpisodeFile(item.ItemID, item.Ino, srcFile); err != nil {
+		srcFile.Close()
+		return fmt.Errorf("downloading %s: %w", item.Title, err)
+	}
+	srcFile.Close()
+
+	finalPath := srcPath
+	needsTranscode := ext != ".mp3" && ext != ".m4a" && ext != ".m4b" && ext != ".aac"
+	if needsTranscode {
+		onStep("Transcoding")
+		finalPath = filepath.Join(tmpDir, "output.mp3")
+		if err := transcode.Transcode(ctx, srcPath, finalPath, "mp3", 128); err != nil {
+			return fmt.Errorf("transcoding %s: %w", item.Title, err)
+		}
+		ext = ".mp3"
+	}
+
+	onStep("Copying to iPod")
+	data, err := os.ReadFile(finalPath)
+	if err != nil {
+		return err
+	}
+
+	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext)
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return err
+	}
+
+	durationMs := uint32(item.Duration * 1000)
+
+	var bookmarkTime uint32
+	progress, err := abs.GetEpisodeProgress(item.ItemID, item.EpisodeID)
+	if err == nil && progress != nil {
+		bm := uint32(progress.CurrentTime * 1000)
+		if bm < durationMs {
+			bookmarkTime = bm
+		}
+	}
+
+	fileType := "mp3"
+	if ext == ".m4a" || ext == ".aac" {
+		fileType = "m4a"
+	} else if ext == ".m4b" {
+		fileType = "m4b"
+	}
+
+	track := &itunesdb.Track{
+		UniqueID:          rand.Uint32(),
+		Title:             item.Title,
+		Artist:            item.Author,
+		Album:             item.ShowName,
+		ShowName:          item.ShowName,
+		Path:              ipod.ToiPodPath(dev.Info.MountPoint, destPath),
+		Duration:          durationMs,
+		Size:              uint32(len(data)),
+		FiletypeKey:       fileType,
+		BitRate:           128,
+		SampleRate:        44100,
+		MediaType:         itunesdb.MediaTypePodcast,
+		PodcastFlag:       1,
 		RememberPosition:  1,
 		SkipWhenShuffling: 1,
 		BookmarkTime:      bookmarkTime,

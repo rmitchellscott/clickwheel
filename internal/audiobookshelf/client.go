@@ -82,6 +82,93 @@ func (c *Client) GetBooks(libraryID string) ([]Book, error) {
 	return br.Results, nil
 }
 
+func (c *Client) GetPodcasts(libraryID string) ([]Podcast, error) {
+	resp, err := c.doRequest("GET", "/api/libraries/"+libraryID+"/items", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var pr PodcastsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return nil, err
+	}
+	return pr.Results, nil
+}
+
+func (c *Client) GetPodcast(itemID string) (*Podcast, error) {
+	resp, err := c.doRequest("GET", "/api/items/"+itemID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get podcast failed: %s", resp.Status)
+	}
+
+	var p Podcast
+	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (c *Client) GetEpisodeProgress(itemID, episodeID string) (*MediaProgress, error) {
+	resp, err := c.doRequest("GET", "/api/me/progress/"+itemID+"/"+episodeID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+
+	var mp MediaProgress
+	if err := json.NewDecoder(resp.Body).Decode(&mp); err != nil {
+		return nil, err
+	}
+	return &mp, nil
+}
+
+func (c *Client) UpdateEpisodeProgress(itemID, episodeID string, currentTime, duration float64) error {
+	body := map[string]any{
+		"currentTime": currentTime,
+		"duration":    duration,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.doRequest("PATCH", "/api/me/progress/"+itemID+"/"+episodeID, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update episode progress failed: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *Client) DownloadEpisodeFile(itemID, ino string, w io.Writer) error {
+	resp, err := c.doRequest("GET", "/api/items/"+itemID+"/file/"+ino, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("episode download failed: %s", resp.Status)
+	}
+
+	_, err = io.Copy(w, resp.Body)
+	return err
+}
+
 func (c *Client) GetProgress(itemID string) (*MediaProgress, error) {
 	resp, err := c.doRequest("GET", "/api/me/progress/"+itemID, nil)
 	if err != nil {
@@ -98,6 +185,25 @@ func (c *Client) GetProgress(itemID string) (*MediaProgress, error) {
 		return nil, err
 	}
 	return &mp, nil
+}
+
+func (c *Client) GetAllProgress() (map[string]MediaProgress, error) {
+	resp, err := c.doRequest("GET", "/api/me", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var me MeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&me); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]MediaProgress, len(me.MediaProgress))
+	for _, mp := range me.MediaProgress {
+		result[mp.LibraryItemID] = mp
+	}
+	return result, nil
 }
 
 func (c *Client) UpdateProgress(itemID string, currentTime, duration float64) error {
