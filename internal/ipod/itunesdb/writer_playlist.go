@@ -107,8 +107,11 @@ func writeMHYPWithFormat(pl *Playlist, trackIDs []uint32, id0x24 uint64, isMaste
 	return append(result, items...)
 }
 
-func WriteMasterPlaylist(trackIDs []uint32, id0x24 uint64, tracks []*Track) []byte {
-	pl := &Playlist{Name: "clickwheel", IsMaster: true, Tracks: tracks}
+func WriteMasterPlaylist(name string, trackIDs []uint32, id0x24 uint64, tracks []*Track) []byte {
+	if name == "" {
+		name = "clickwheel"
+	}
+	pl := &Playlist{Name: name, IsMaster: true, Tracks: tracks}
 	return WriteMHYP(pl, trackIDs, id0x24, true, tracks)
 }
 

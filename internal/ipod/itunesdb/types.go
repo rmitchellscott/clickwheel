@@ -195,10 +195,14 @@ type ArtistInfo struct {
 	SortName   string
 }
 
-func NewDatabase() *Database {
+func NewDatabase(name ...string) *Database {
+	plName := "clickwheel"
+	if len(name) > 0 && name[0] != "" {
+		plName = name[0]
+	}
 	return &Database{
 		Playlists: []*Playlist{
-			{Name: "clickwheel", IsMaster: true},
+			{Name: plName, IsMaster: true},
 		},
 	}
 }

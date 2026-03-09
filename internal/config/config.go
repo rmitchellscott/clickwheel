@@ -92,6 +92,7 @@ type HostConfig struct {
 
 type DeviceConfig struct {
 	DeviceID     string       `json:"deviceId"`
+	DeviceName   string       `json:"deviceName,omitempty"`
 	LastModified int64        `json:"lastModified"`
 	Servers      ServerURLs   `json:"servers"`
 	Inclusions   Inclusions   `json:"inclusions"`

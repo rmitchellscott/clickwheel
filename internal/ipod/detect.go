@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"clickwheel/internal/ipod/itunesdb"
 )
 
 type DeviceInfo struct {
@@ -637,7 +639,29 @@ func ReadSysInfo(mountPoint string) *DeviceInfo {
 	}
 }
 
+func readIPodName(mountPoint string) string {
+	dbPath := filepath.Join(mountPoint, "iPod_Control", "iTunes", "iTunesDB")
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		return ""
+	}
+	db, err := itunesdb.Parse(data)
+	if err != nil {
+		return ""
+	}
+	for _, pl := range db.Playlists {
+		if pl.IsMaster && pl.Name != "" {
+			return pl.Name
+		}
+	}
+	return ""
+}
+
 func fillDeviceInfo(di *DeviceInfo, sysInfo *DeviceInfo) {
+	if name := readIPodName(di.MountPoint); name != "" {
+		di.Name = name
+	}
+
 	if sysInfo == nil {
 		di.Icon = "iPodGeneric.png"
 		return

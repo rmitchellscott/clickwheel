@@ -131,7 +131,7 @@ func buildPlaylistBody(db *Database, id0x24 uint64, trackIDs []uint32, podcastGr
 	for _, pl := range db.Playlists {
 		if pl.IsMaster {
 			playlistChunks = append(playlistChunks,
-				WriteMasterPlaylist(trackIDs, id0x24, db.Tracks))
+				WriteMasterPlaylist(pl.Name, trackIDs, id0x24, db.Tracks))
 			break
 		}
 	}

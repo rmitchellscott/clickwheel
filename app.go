@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,17 +16,19 @@ import (
 	"clickwheel/internal/config"
 	"clickwheel/internal/ipod"
 	"clickwheel/internal/ipod/itunesdb"
+	"clickwheel/internal/restore"
 	"clickwheel/internal/subsonic"
 	"clickwheel/internal/sync"
 )
 
 type App struct {
-	ctx        context.Context
-	host       *config.HostConfig
-	device     *config.DeviceConfig
-	subClient  *subsonic.Client
-	absClient  *audiobookshelf.Client
-	cancelSync context.CancelFunc
+	ctx            context.Context
+	host           *config.HostConfig
+	device         *config.DeviceConfig
+	subClient      *subsonic.Client
+	absClient      *audiobookshelf.Client
+	cancelSync     context.CancelFunc
+	cancelRestore  context.CancelFunc
 }
 
 func NewApp() *App {
@@ -564,6 +567,192 @@ func (a *App) CopyTracksToComputer(trackIDs []string, destDir string) error {
 		})
 		runtime.EventsEmit(a.ctx, "copy:done", nil)
 	}()
+	return nil
+}
+
+func (a *App) DetectUSBIPod() (*restore.USBDeviceInfo, error) {
+	devs, err := restore.EnumerateIPods()
+	if err != nil {
+		return nil, err
+	}
+	if len(devs) == 0 {
+		return nil, nil
+	}
+	return &devs[0], nil
+}
+
+func (a *App) DetectUSBIPods() []restore.USBIPod {
+	ipods, err := restore.DetectUSBIPods()
+	if err != nil {
+		log.Printf("[restore] DetectUSBIPods error: %v", err)
+		return nil
+	}
+	for i, ip := range ipods {
+		log.Printf("[restore] USB iPod[%d]: %s mode=%s disk=%s restorable=%v", i, ip.Model.Name, ip.Mode, ip.DiskPath, ip.Model.Restorable)
+	}
+	return ipods
+}
+
+
+func (a *App) GetAvailableFirmware(model string) []restore.IPSWEntry {
+	return restore.FindFirmware(model)
+}
+
+func (a *App) GetIPSWCatalog() []restore.IPSWEntry {
+	return restore.GetCatalog()
+}
+
+func (a *App) GetRecommendedFirmware() []restore.FirmwareMatch {
+	info, _ := ipod.Detect()
+	if info != nil {
+		matches := restore.MatchFirmware(info.Family, info.Generation, info.Model)
+		log.Printf("[restore] MatchFirmware (mounted): %d matches for %s %s", len(matches), info.Family, info.Generation)
+		return matches
+	}
+
+	usbIPods, _ := restore.DetectUSBIPods()
+	if len(usbIPods) > 0 && usbIPods[0].Model != nil {
+		m := usbIPods[0].Model
+		matches := restore.MatchFirmware(m.Family, m.Generation, "")
+		log.Printf("[restore] MatchFirmware (USB): %d matches for %s %s", len(matches), m.Family, m.Generation)
+		return matches
+	}
+
+	return nil
+}
+
+func (a *App) CheckFullDiskAccess() bool {
+	usbIPods, _ := restore.DetectUSBIPods()
+	if len(usbIPods) > 0 && usbIPods[0].DiskPath != "" {
+		log.Printf("[FDA] checking USB iPod disk: %s", usbIPods[0].DiskPath)
+		return restore.CheckFullDiskAccess(usbIPods[0].DiskPath)
+	}
+	info, _ := ipod.Detect()
+	if info != nil {
+		if raw, err := restore.RawDiskPath(info.MountPoint); err == nil {
+			log.Printf("[FDA] checking mounted iPod disk: %s", raw)
+			return restore.CheckFullDiskAccess(raw)
+		}
+	}
+	log.Printf("[FDA] no iPod found to check")
+	return false
+}
+
+func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string) error {
+	catalog := restore.GetCatalog()
+	if ipswIndex < 0 || ipswIndex >= len(catalog) {
+		return fmt.Errorf("invalid firmware index")
+	}
+	entry := catalog[ipswIndex]
+
+	info, _ := ipod.Detect()
+
+	var model *restore.IPodModel
+	var rawDisk string
+
+	if info != nil {
+		model = restore.ModelByFamilyGeneration(info.Family, info.Generation)
+		if model == nil {
+			return fmt.Errorf("unsupported iPod model: %s %s", info.Family, info.Generation)
+		}
+		if rd, err := restore.RawDiskPath(info.MountPoint); err == nil {
+			rawDisk = rd
+		}
+	} else {
+		usbIPods, _ := restore.DetectUSBIPods()
+		for _, u := range usbIPods {
+			if u.DiskPath != "" && u.Model != nil {
+				model = u.Model
+				rawDisk = u.DiskPath
+				log.Printf("[restore] Found iPod via USB: %s at %s", model.Name, rawDisk)
+				break
+			}
+		}
+	}
+
+	if rawDiskPath != "" {
+		rawDisk = rawDiskPath
+	}
+
+	if rawDisk == "" {
+		return fmt.Errorf("no iPod detected")
+	}
+
+	if model == nil {
+		return fmt.Errorf("could not determine iPod model")
+	}
+
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.cancelRestore = cancel
+
+	engine := restore.NewRestoreEngine(entry, model, deviceName, func(progress restore.RestoreProgress) {
+		runtime.EventsEmit(a.ctx, "restore:progress", progress)
+	})
+	if rawDisk != "" {
+		engine.SetRawDisk(rawDisk)
+	}
+
+	go func() {
+		defer func() { a.cancelRestore = nil }()
+		err := engine.Run(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				runtime.EventsEmit(a.ctx, "restore:error", "Restore cancelled")
+			} else {
+				runtime.EventsEmit(a.ctx, "restore:error", err.Error())
+			}
+			return
+		}
+		if a.device != nil && deviceName != "" {
+			a.device.DeviceName = deviceName
+			_ = a.saveDevice()
+		}
+		runtime.EventsEmit(a.ctx, "restore:done", nil)
+	}()
+	return nil
+}
+
+func (a *App) CancelRestore() {
+	if a.cancelRestore != nil {
+		a.cancelRestore()
+	}
+}
+
+func (a *App) RenameIPod(name string) error {
+	if name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+
+	info, err := ipod.Detect()
+	if err != nil || info == nil {
+		return fmt.Errorf("no iPod connected")
+	}
+
+	dev, err := ipod.OpenDevice(info)
+	if err != nil {
+		return fmt.Errorf("open device: %w", err)
+	}
+
+	for _, pl := range dev.DB.Playlists {
+		if pl.IsMaster {
+			pl.Name = name
+			break
+		}
+	}
+
+	if err := dev.Save(); err != nil {
+		return fmt.Errorf("save iTunesDB: %w", err)
+	}
+
+	if err := restore.RenameVolume(info.MountPoint, name); err != nil {
+		fmt.Fprintf(os.Stderr, "volume rename (will apply after eject): %v\n", err)
+	}
+
+	if a.device != nil {
+		a.device.DeviceName = name
+		_ = a.saveDevice()
+	}
+
 	return nil
 }
 

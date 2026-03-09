@@ -5,10 +5,10 @@ import { formatBytes } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Search, Music, BookOpen, Podcast, ArrowUpDown, Clock, TrendingUp, ChevronUp, ChevronDown, Download, Check, X, FolderDown, ListMusic, Folder, Loader2, CheckCircle } from 'lucide-react'
+import { Search, Music, BookOpen, Podcast, ArrowUpDown, Clock, TrendingUp, ChevronUp, ChevronDown, Download, Check, X, FolderDown, ListMusic, Folder, Loader2, CheckCircle, RotateCcw, Pencil } from 'lucide-react'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { IPodIcon } from '@/components/IPodIcon'
-import { GetIPodTracks, GetIPodPlaylists, BrowseDirectory, CopyTracksToComputer } from '../../wailsjs/go/main/App'
+import { GetIPodTracks, GetIPodPlaylists, BrowseDirectory, CopyTracksToComputer, RenameIPod } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import type { IPodTrack } from '@/store/appStore'
 
@@ -79,10 +79,12 @@ function formatTrackDuration(seconds: number): string {
 }
 
 export function IPodPage() {
-  const { ipod, ipodTracks, setIPodTracks, ipodPlaylists, setIPodPlaylists } = useAppStore()
+  const { ipod, setIPod, ipodTracks, setIPodTracks, ipodPlaylists, setIPodPlaylists, setRestoreModalOpen } = useAppStore()
   const [tab, setTab] = useState<IPodTab>('overview')
   const [expandedPlaylist, setExpandedPlaylist] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('lastPlayed')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filter, setFilter] = useState<TrackFilter>('all')
@@ -232,16 +234,38 @@ export function IPodPage() {
     return sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
   }
 
+  const usbDevice = useAppStore(s => s.usbDevice)
+
   if (!ipod) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <div className="text-center">
           <IPodIcon size={64} className="mx-auto mb-3 opacity-30" />
-          <p>No iPod connected</p>
+          {usbDevice ? (
+            <>
+              <p className="font-medium text-foreground">{usbDevice.model} detected</p>
+              {usbDevice.restorable ? (
+                <>
+                  <p className="text-sm mt-1">This iPod needs to be restored before it can be used.</p>
+                  <Button variant="destructive" size="sm" className="mt-3" onClick={() => setRestoreModalOpen(true)}>
+                    <RotateCcw className="h-4 w-4 mr-1" /> Restore
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm mt-1">Restore is not supported for this model.</p>
+              )}
+            </>
+          ) : (
+            <p>No iPod connected</p>
+          )}
         </div>
       </div>
     )
   }
+
+  const restorableFamilies = new Set(['iPod', 'iPod U2', 'iPod Photo', 'iPod Photo U2', 'iPod Mini', 'iPod Video', 'iPod Video U2', 'iPod Nano'])
+  const isRestorable = restorableFamilies.has(ipod.family) && !['1st Gen', '2nd Gen', '3rd Gen'].includes(ipod.generation)
+    && !(ipod.family === 'iPod Nano' && ipod.generation !== '1st Gen')
 
   const usedSpace = ipod.totalSpace - ipod.freeSpace
   const segments = [
@@ -258,11 +282,48 @@ export function IPodPage() {
         <div className="flex items-center gap-4">
           <IPodIcon size={56} icon={ipod.icon} className="shrink-0" />
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold">{ipod.name}</h2>
+            {editingName ? (
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                if (nameInput.trim()) {
+                  try {
+                    await RenameIPod(nameInput.trim())
+                    setIPod({ ...ipod, name: nameInput.trim() })
+                  } catch {}
+                }
+                setEditingName(false)
+              }} className="flex items-center gap-2">
+                <Input
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  className="h-7 text-lg font-semibold w-48"
+                  autoFocus
+                  onBlur={() => setEditingName(false)}
+                  onKeyDown={e => e.key === 'Escape' && setEditingName(false)}
+                />
+              </form>
+            ) : (
+              <div className="flex items-center gap-1.5 group">
+                <h2 className="text-lg font-semibold">{ipod.name}</h2>
+                <button
+                  onClick={() => { setNameInput(ipod.name); setEditingName(true) }}
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">{[ipod.family, ipod.generation, ipod.displayCapacity].filter(Boolean).join(' \u00B7 ')} &middot; {formatBytes(usedSpace)} of {formatBytes(ipod.totalSpace)} used</p>
           </div>
-          <div className="text-xs text-muted-foreground shrink-0">
-            {ipodTracks.length} items &middot; {totalHours}h of content
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="text-xs text-muted-foreground">
+              {ipodTracks.length} items &middot; {totalHours}h of content
+            </div>
+            {isRestorable && (
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7" onClick={() => setRestoreModalOpen(true)}>
+                <RotateCcw className="h-3 w-3" /> Restore
+              </Button>
+            )}
           </div>
         </div>
 

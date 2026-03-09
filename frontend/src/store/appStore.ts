@@ -60,6 +60,32 @@ export interface SyncProgress {
   eta?: string
 }
 
+export interface RestoreProgress {
+  state: string
+  message: string
+  percent: number
+  canRetry: boolean
+  error?: string
+}
+
+export interface USBDeviceInfo {
+  model: string
+  generation: string
+  productId: number
+  mode: string
+  restorable: boolean
+}
+
+export interface IPSWEntry {
+  model: string
+  variant?: string
+  version: string
+  build?: string
+  url: string
+  filename: string
+  sha1?: string
+}
+
 export interface IPodTrack {
   id: string
   title: string
@@ -192,6 +218,17 @@ interface AppState {
   syncComplete: boolean
   setSyncComplete: (c: boolean) => void
 
+  restoreModalOpen: boolean
+  setRestoreModalOpen: (open: boolean) => void
+  restoreProgress: RestoreProgress | null
+  setRestoreProgress: (p: RestoreProgress | null) => void
+  restoring: boolean
+  setRestoring: (r: boolean) => void
+  restoreError: string | null
+  setRestoreError: (e: string | null) => void
+  usbDevice: USBDeviceInfo | null
+  setUSBDevice: (d: USBDeviceInfo | null) => void
+
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
 
@@ -293,6 +330,17 @@ export const useAppStore = create<AppState>((set) => ({
   setSyncError: (syncError) => set({ syncError }),
   syncComplete: false,
   setSyncComplete: (syncComplete) => set({ syncComplete }),
+
+  restoreModalOpen: false,
+  setRestoreModalOpen: (restoreModalOpen) => set({ restoreModalOpen }),
+  restoreProgress: null,
+  setRestoreProgress: (restoreProgress) => set({ restoreProgress }),
+  restoring: false,
+  setRestoring: (restoring) => set({ restoring }),
+  restoreError: null,
+  setRestoreError: (restoreError) => set({ restoreError }),
+  usbDevice: null,
+  setUSBDevice: (usbDevice) => set({ usbDevice }),
 
   settingsOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),

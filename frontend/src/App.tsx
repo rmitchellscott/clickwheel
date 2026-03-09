@@ -9,13 +9,16 @@ import { SyncPage } from '@/components/SyncPage'
 import { SyncProgressCard } from '@/components/SyncProgressCard'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPod, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts, GetActiveDeviceID, GetKnownDevices } from '../wailsjs/go/main/App'
+import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPod, DetectUSBIPods, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts, GetActiveDeviceID, GetKnownDevices } from '../wailsjs/go/main/App'
 import { useSyncEvents } from '@/hooks/useSyncEvents'
+import { useRestoreEvents } from '@/hooks/useRestoreEvents'
+import { RestoreDialog } from '@/components/RestoreDialog'
 
 function App() {
   const { page, setIPod, setSubsonicConfigured, setSubsonicConnected, setAbsConfigured, setAbsConnected, setPlaylists, setAlbums, setArtists, setBooks, setPodcasts } = useAppStore()
 
   useSyncEvents()
+  useRestoreEvents()
 
   useEffect(() => {
     GetActiveDeviceID().then(id => {
@@ -103,7 +106,19 @@ function App() {
     }).catch(() => {})
 
     DetectIPod().then(info => {
-      if (info) setIPod(info)
+      if (info) {
+        setIPod(info)
+      } else {
+        DetectUSBIPods().then(ipods => {
+          if (ipods && ipods.length > 0 && ipods[0].model) {
+            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false }
+            useAppStore.getState().setUSBDevice(dev)
+            if (dev.restorable) {
+              useAppStore.getState().setRestoreModalOpen(true)
+            }
+          }
+        }).catch(() => {})
+      }
     }).catch(() => {})
   }, [])
 
@@ -134,6 +149,21 @@ function App() {
         } else if (!info && current) {
           setIPod(null)
         }
+        if (!info) {
+          const ipods = await DetectUSBIPods().catch(() => null)
+          if (ipods && ipods.length > 0 && ipods[0].model) {
+            const prev = useAppStore.getState().usbDevice
+            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false }
+            useAppStore.getState().setUSBDevice(dev)
+            if (dev.restorable && !prev) {
+              useAppStore.getState().setRestoreModalOpen(true)
+            }
+          } else {
+            useAppStore.getState().setUSBDevice(null)
+          }
+        } else {
+          useAppStore.getState().setUSBDevice(null)
+        }
       } catch {
         if (useAppStore.getState().ipod) setIPod(null)
       }
@@ -154,6 +184,7 @@ function App() {
           <SyncProgressCard />
         </main>
         <SettingsDialog />
+        <RestoreDialog />
       </div>
     </TooltipProvider>
   )
