@@ -74,6 +74,7 @@ export interface USBDeviceInfo {
   productId: number
   mode: string
   restorable: boolean
+  diskPath: string
 }
 
 export interface IPSWEntry {

@@ -107,21 +107,24 @@ func (e *RestoreEngine) Run(ctx context.Context) error {
 	if rawDisk == "" {
 		e.emit(StateDetecting, "Detecting iPod...", 30)
 		info, err := ipod.Detect()
-		if err != nil || info == nil {
-			e.emitError("iPod not detected. Please connect your iPod.", true)
-			return fmt.Errorf("iPod not detected")
-		}
-
-		rawDisk, err = RawDiskPath(info.MountPoint)
-		if err != nil {
-			e.emitError(fmt.Sprintf("Could not determine raw disk path: %v", err), true)
-			return err
-		}
-
-		e.emit(StatePartitioning, "Unmounting iPod...", 35)
-		if err := UnmountDisk(info.MountPoint); err != nil {
-			e.emitError(fmt.Sprintf("Failed to unmount: %v", err), true)
-			return err
+		if err == nil && info != nil {
+			rawDisk, err = RawDiskPath(info.MountPoint)
+			if err != nil {
+				e.emitError(fmt.Sprintf("Could not determine raw disk path: %v", err), true)
+				return err
+			}
+			e.emit(StatePartitioning, "Unmounting iPod...", 35)
+			if err := UnmountDisk(info.MountPoint); err != nil {
+				e.emitError(fmt.Sprintf("Failed to unmount: %v", err), true)
+				return err
+			}
+		} else {
+			usbIPods, usbErr := DetectUSBIPods()
+			if usbErr != nil || len(usbIPods) == 0 || usbIPods[0].DiskPath == "" {
+				e.emitError("iPod not detected. Please connect your iPod and enter disk mode.", true)
+				return fmt.Errorf("iPod not detected")
+			}
+			rawDisk = usbIPods[0].DiskPath
 		}
 	}
 

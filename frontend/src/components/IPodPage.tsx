@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress'
 import { Search, Music, BookOpen, Podcast, ArrowUpDown, Clock, TrendingUp, ChevronUp, ChevronDown, Download, Check, X, FolderDown, ListMusic, Folder, Loader2, CheckCircle, RotateCcw, Pencil } from 'lucide-react'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { IPodIcon } from '@/components/IPodIcon'
-import { GetIPodTracks, GetIPodPlaylists, BrowseDirectory, CopyTracksToComputer, RenameIPod } from '../../wailsjs/go/main/App'
+import { GetIPodTracks, GetIPodPlaylists, BrowseDirectory, CopyTracksToComputer, RenameIPod, MountIPod } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import type { IPodTrack } from '@/store/appStore'
 
@@ -244,15 +244,34 @@ export function IPodPage() {
           {usbDevice ? (
             <>
               <p className="font-medium text-foreground">{usbDevice.model} detected</p>
-              {usbDevice.restorable ? (
+              {usbDevice.diskPath ? (
                 <>
-                  <p className="text-sm mt-1">This iPod needs to be restored before it can be used.</p>
-                  <Button variant="destructive" size="sm" className="mt-3" onClick={() => setRestoreModalOpen(true)}>
-                    <RotateCcw className="h-4 w-4 mr-1" /> Restore
-                  </Button>
+                  <p className="text-sm mt-1">This iPod is connected but not mounted.</p>
+                  <div className="flex items-center gap-2 mt-3 justify-center">
+                    <Button variant="outline" size="sm" onClick={() => MountIPod(usbDevice.diskPath).catch(e => console.error('mount failed:', e))}>
+                      Mount
+                    </Button>
+                    {usbDevice.restorable && (
+                      <Button variant="destructive" size="sm" onClick={() => setRestoreModalOpen(true)}>
+                        <RotateCcw className="h-4 w-4 mr-1" /> Restore
+                      </Button>
+                    )}
+                  </div>
                 </>
               ) : (
-                <p className="text-sm mt-1">Restore is not supported for this model.</p>
+                <div className="mt-3 max-w-xs space-y-4">
+                  <p className="text-sm">Try disconnecting and reconnecting the iPod.</p>
+                  {usbDevice.restorable && (
+                    <div className="border-t pt-4">
+                      <p className="text-sm text-muted-foreground">To restore, enter disk mode first:</p>
+                      <ol className="text-sm text-muted-foreground mt-2 space-y-1 text-center">
+                        <li>Hold <strong className="text-foreground">Menu + Select</strong> to reboot</li>
+                        <li>Then hold <strong className="text-foreground">Select + Play</strong></li>
+                        <li>Wait for the "OK to disconnect" screen</li>
+                      </ol>
+                    </div>
+                  )}
+                </div>
               )}
             </>
           ) : (

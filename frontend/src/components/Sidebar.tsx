@@ -32,6 +32,7 @@ export function Sidebar() {
     settingsOpen, setSettingsOpen,
     syncPlan,
     activeDeviceId, knownDevices,
+    usbDevice,
   } = useAppStore()
 
   const [scanningIPod, setScanningIPod] = useState(false)
@@ -189,7 +190,28 @@ export function Sidebar() {
         </button>
       )}
 
-      {!ipod && activeKnownDevice && (
+      {!ipod && usbDevice && (
+        <button
+          onClick={() => setPage('ipod')}
+          className={cn(
+            'mx-3 mt-3 mb-3 p-3 rounded-lg text-left transition-colors',
+            page === 'ipod'
+              ? 'bg-sidebar-accent ring-1 ring-sidebar-accent-foreground/20'
+              : 'bg-sidebar-accent hover:ring-1 hover:ring-sidebar-accent-foreground/10'
+          )}
+        >
+          <div className="flex items-center gap-2.5">
+            <IPodIcon size={36} className="shrink-0 opacity-60" />
+            <div className="min-w-0 flex-1">
+              <span className="text-sm font-medium text-sidebar-accent-foreground truncate block">{usbDevice.model}</span>
+              <div className="text-[11px] text-sidebar-foreground/60">{usbDevice.generation}</div>
+              <div className="text-[11px] text-sidebar-foreground/50">Unmounted</div>
+            </div>
+          </div>
+        </button>
+      )}
+
+      {!ipod && !usbDevice && activeKnownDevice && (
         <div className="mx-3 mt-3 mb-3 p-3 rounded-lg bg-sidebar-accent opacity-70">
           <div className="flex items-center gap-2.5 mb-1">
             <IPodIcon size={36} icon={activeKnownDevice.icon} className="shrink-0 opacity-60" />
@@ -246,7 +268,7 @@ export function Sidebar() {
         </div>
       )}
 
-      {!ipod && !activeKnownDevice && (
+      {!ipod && !usbDevice && !activeKnownDevice && (
         <button
           onClick={scanForIPod}
           disabled={scanningIPod}

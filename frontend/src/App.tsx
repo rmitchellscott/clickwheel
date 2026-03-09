@@ -111,11 +111,8 @@ function App() {
       } else {
         DetectUSBIPods().then(ipods => {
           if (ipods && ipods.length > 0 && ipods[0].model) {
-            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false }
+            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false, diskPath: ipods[0].diskPath || '' }
             useAppStore.getState().setUSBDevice(dev)
-            if (dev.restorable) {
-              useAppStore.getState().setRestoreModalOpen(true)
-            }
           }
         }).catch(() => {})
       }
@@ -124,7 +121,7 @@ function App() {
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (useAppStore.getState().syncing) return
+      if (useAppStore.getState().syncing || useAppStore.getState().restoring) return
       try {
         const info = await DetectIPod()
         const current = useAppStore.getState().ipod
@@ -152,12 +149,8 @@ function App() {
         if (!info) {
           const ipods = await DetectUSBIPods().catch(() => null)
           if (ipods && ipods.length > 0 && ipods[0].model) {
-            const prev = useAppStore.getState().usbDevice
-            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false }
+            const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false, diskPath: ipods[0].diskPath || '' }
             useAppStore.getState().setUSBDevice(dev)
-            if (dev.restorable && !prev) {
-              useAppStore.getState().setRestoreModalOpen(true)
-            }
           } else {
             useAppStore.getState().setUSBDevice(null)
           }

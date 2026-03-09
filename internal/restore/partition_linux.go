@@ -57,6 +57,6 @@ func partitionAndFormatDirect(rawDiskPath string, firmwarePartSize int64, sector
 	return openAndPartitionWithDiskFS(rawDiskPath, firmwarePartSize, sectorSize, volumeLabel)
 }
 
-func MountDataPartition(_ string) {}
+func MountDataPartition(_ string) error { return nil }
 
 func CheckFullDiskAccess(_ string) bool { return true }

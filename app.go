@@ -594,6 +594,30 @@ func (a *App) DetectUSBIPods() []restore.USBIPod {
 }
 
 
+
+func (a *App) MountIPod(rawDiskPath string) error {
+	log.Printf("[mount] MountIPod called with diskPath=%q", rawDiskPath)
+	if rawDiskPath == "" {
+		ipods, err := restore.DetectUSBIPods()
+		if err != nil || len(ipods) == 0 {
+			log.Printf("[mount] no iPod found to mount")
+			return fmt.Errorf("no iPod found to mount")
+		}
+		rawDiskPath = ipods[0].DiskPath
+		log.Printf("[mount] resolved diskPath=%q", rawDiskPath)
+		if rawDiskPath == "" {
+			return fmt.Errorf("could not determine disk path")
+		}
+	}
+	err := restore.MountDataPartition(rawDiskPath)
+	if err != nil {
+		log.Printf("[mount] failed: %v", err)
+	} else {
+		log.Printf("[mount] success")
+	}
+	return err
+}
+
 func (a *App) GetAvailableFirmware(model string) []restore.IPSWEntry {
 	return restore.FindFirmware(model)
 }

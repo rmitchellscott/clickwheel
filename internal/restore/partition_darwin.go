@@ -86,8 +86,12 @@ func partitionAndFormatDirect(rawDiskPath string, firmwarePartSize int64, sector
 	return nil
 }
 
-func MountDataPartition(rawDiskPath string) {
-	exec.Command("diskutil", "mount", rawDiskPath+"s2").Run()
+func MountDataPartition(rawDiskPath string) error {
+	out, err := exec.Command("diskutil", "mount", rawDiskPath+"s2").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("diskutil mount: %s", string(out))
+	}
+	return nil
 }
 
 func CheckFullDiskAccess(_ string) bool {
