@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"log"
+	"strconv"
 
 	"clickwheel/internal/audiobookshelf"
 	"clickwheel/internal/config"
@@ -44,16 +45,19 @@ type BookItem struct {
 }
 
 type PodcastEpisodeItem struct {
-	SourceID  string
-	ItemID    string
-	EpisodeID string
-	Title     string
-	ShowName  string
-	Author    string
-	Duration  float64
-	Size      int64
-	Ino       string
-	Ext       string
+	SourceID      string
+	ItemID        string
+	EpisodeID     string
+	Title         string
+	ShowName      string
+	Author        string
+	Duration      float64
+	Size          int64
+	Ino           string
+	Ext           string
+	EpisodeNumber int
+	Season        int
+	PublishedAt   int64
 }
 
 type PlaylistPlan struct {
@@ -227,17 +231,22 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 						sourceID := pod.ID + "|" + ep.ID
 						wantedIDs[sourceID] = true
 						if !existingIDs[sourceID] {
+							epNum, _ := strconv.Atoi(ep.Episode)
+							seasonNum, _ := strconv.Atoi(ep.Season)
 							plan.AddPodcasts = append(plan.AddPodcasts, PodcastEpisodeItem{
-								SourceID:  sourceID,
-								ItemID:    pod.ID,
-								EpisodeID: ep.ID,
-								Title:     ep.Title,
-								ShowName:  pod.Media.Metadata.Title,
-								Author:    pod.Media.Metadata.Author,
-								Duration:  ep.AudioFile.Duration,
-								Size:      ep.AudioFile.Metadata.Size,
-								Ino:       ep.AudioFile.Ino,
-								Ext:       ep.AudioFile.Metadata.Ext,
+								SourceID:      sourceID,
+								ItemID:        pod.ID,
+								EpisodeID:     ep.ID,
+								Title:         ep.Title,
+								ShowName:      pod.Media.Metadata.Title,
+								Author:        pod.Media.Metadata.Author,
+								Duration:      ep.AudioFile.Duration,
+								Size:          ep.AudioFile.Metadata.Size,
+								Ino:           ep.AudioFile.Ino,
+								Ext:           ep.AudioFile.Metadata.Ext,
+								EpisodeNumber: epNum,
+								Season:        seasonNum,
+								PublishedAt:   ep.PublishedAt,
 							})
 						}
 					}

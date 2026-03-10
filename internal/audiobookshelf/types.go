@@ -74,6 +74,8 @@ type PodcastMetadata struct {
 type PodcastEpisode struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
+	Episode     string    `json:"episode"`
+	Season      string    `json:"season"`
 	AudioFile   AudioFile `json:"audioFile"`
 	PublishedAt int64     `json:"publishedAt"`
 }

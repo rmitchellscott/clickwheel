@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"clickwheel/internal/audiobookshelf"
 	"clickwheel/internal/ipod"
@@ -495,6 +496,13 @@ func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev
 		SkipWhenShuffling: 1,
 		BookmarkTime:      bookmarkTime,
 		SourceID:          item.SourceID,
+		TrackNumber:       uint16(item.EpisodeNumber),
+		EpisodeNumber:     uint32(item.EpisodeNumber),
+		SeasonNumber:      uint32(item.Season),
+	}
+
+	if item.PublishedAt > 0 {
+		track.DateReleased = time.Unix(item.PublishedAt/1000, 0)
 	}
 
 	dev.DB.AddTrack(track)

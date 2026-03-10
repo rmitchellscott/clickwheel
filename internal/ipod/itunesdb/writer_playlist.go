@@ -3,6 +3,7 @@ package itunesdb
 import (
 	"encoding/binary"
 	"math/rand"
+	"sort"
 	"time"
 	"unicode/utf16"
 )
@@ -167,6 +168,20 @@ func WritePodcastMHIPs(pl *Playlist, allTracks []*Track) ([]byte, int) {
 			groupOrder = append(groupOrder, album)
 		}
 		g.tracks = append(g.tracks, t.UniqueID)
+	}
+
+	for _, g := range groups {
+		sort.SliceStable(g.tracks, func(i, j int) bool {
+			ti := trackByID[g.tracks[i]]
+			tj := trackByID[g.tracks[j]]
+			if ti == nil || tj == nil {
+				return false
+			}
+			if ti.EpisodeNumber != tj.EpisodeNumber {
+				return ti.EpisodeNumber < tj.EpisodeNumber
+			}
+			return ti.DateReleased.Before(tj.DateReleased)
+		})
 	}
 
 	var result []byte

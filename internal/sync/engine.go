@@ -295,7 +295,9 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 			}
 
 			if ipodChanged && (!absChanged || ipodTime > absTime) {
-				summary.BooksFromIPod = append(summary.BooksFromIPod, track.Title)
+				if e.device.SyncSettings.TwoWayBookSync {
+					summary.BooksFromIPod = append(summary.BooksFromIPod, track.Title)
+				}
 			} else if absChanged {
 				summary.BooksToIPod = append(summary.BooksToIPod, track.Title)
 			}
@@ -328,7 +330,9 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 			}
 
 			if ipodChanged && (!absChanged || ipodGlobal > absGlobal) {
-				summary.BooksFromIPod = append(summary.BooksFromIPod, g.bookTitle)
+				if e.device.SyncSettings.TwoWayBookSync {
+					summary.BooksFromIPod = append(summary.BooksFromIPod, g.bookTitle)
+				}
 			} else if absChanged {
 				summary.BooksToIPod = append(summary.BooksToIPod, g.bookTitle)
 			}
@@ -367,7 +371,9 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 			}
 
 			if ipodChanged && (!absChanged || ipodTime > absTime) {
-				summary.PodcastsFromIPod = append(summary.PodcastsFromIPod, track.Title)
+				if e.device.SyncSettings.TwoWayPodcastSync {
+					summary.PodcastsFromIPod = append(summary.PodcastsFromIPod, track.Title)
+				}
 			} else if absChanged {
 				summary.PodcastsToIPod = append(summary.PodcastsToIPod, track.Title)
 			}
@@ -549,7 +555,9 @@ func (e *Engine) syncBookmarks(ctx context.Context, dev *ipod.Device, onProgress
 		absChanged := progress != nil && math.Round(absGlobal) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
 
 		if ipodChanged && (!absChanged || ipodGlobal > absGlobal) {
-			_ = e.abs.UpdateProgress(bookID, ipodGlobal, absDuration)
+			if e.device.SyncSettings.TwoWayBookSync {
+				_ = e.abs.UpdateProgress(bookID, ipodGlobal, absDuration)
+			}
 		} else if absChanged {
 			distributePositionToParts(g.tracks, parts, absGlobal)
 		}
@@ -614,11 +622,13 @@ func (e *Engine) syncSingleBookmark(track *itunesdb.Track) {
 		absChanged := math.Round(absTime) != math.Round(prev.CurrentTime) && progress.LastUpdate/1000 > prev.LastSync
 
 		if ipodChanged && (!absChanged || ipodTime > absTime) {
-			_ = e.abs.UpdateProgress(track.SourceID, ipodTime, progress.Duration)
+			if e.device.SyncSettings.TwoWayBookSync {
+				_ = e.abs.UpdateProgress(track.SourceID, ipodTime, progress.Duration)
+			}
 		} else if absChanged {
 			track.BookmarkTime = uint32(absTime * 1000)
 		}
-	} else if ipodTime > 0 {
+	} else if ipodTime > 0 && e.device.SyncSettings.TwoWayBookSync {
 		_ = e.abs.UpdateProgress(track.SourceID, ipodTime, float64(track.Duration)/1000.0)
 	}
 
