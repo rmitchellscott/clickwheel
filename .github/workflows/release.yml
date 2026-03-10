@@ -1,0 +1,338 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+
+      - name: Set version in wails.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.info.productVersion = $v | .info.productName = "Clickwheel"' wails.json > tmp.json && mv tmp.json wails.json
+
+      - name: Build universal helper
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o build/bin/helper-amd64 -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" ./cmd/clickwheel-helper
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o build/bin/helper-arm64 -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" ./cmd/clickwheel-helper
+          lipo -create -output build/bin/clickwheel-helper build/bin/helper-amd64 build/bin/helper-arm64
+          rm build/bin/helper-amd64 build/bin/helper-arm64
+
+      - name: Build universal app
+        run: |
+          wails build -platform darwin/universal \
+            -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}"
+
+      - name: Import certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Sign helper and bundle
+        run: |
+          IDENTITY="Developer ID Application: Robert Scott (${{ secrets.APPLE_TEAM_ID }})"
+          ENT=build/darwin/entitlements.plist
+
+          codesign --force --verify --verbose \
+            --sign "$IDENTITY" \
+            --options runtime \
+            --entitlements $ENT \
+            build/bin/clickwheel-helper
+
+          cp build/bin/clickwheel-helper build/bin/clickwheel.app/Contents/MacOS/clickwheel-helper
+
+          codesign --force --verify --verbose \
+            --sign "$IDENTITY" \
+            --options runtime \
+            --entitlements $ENT \
+            build/bin/clickwheel.app
+
+      - name: Create ZIP for notarization
+        run: |
+          cd build/bin
+          ditto -c -k --keepParent clickwheel.app clickwheel-macos-universal.zip
+
+      - name: Store API key
+        if: startsWith(github.ref, 'refs/tags/') && !endsWith(github.ref_name, '-test')
+        run: |
+          mkdir -p ~/private_keys
+          echo -n "${{ secrets.APPLE_API_KEY_BASE64 }}" | base64 --decode -o ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+
+      - name: Notarize
+        if: startsWith(github.ref, 'refs/tags/') && !endsWith(github.ref_name, '-test')
+        run: |
+          xcrun notarytool submit build/bin/clickwheel-macos-universal.zip \
+            --key ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8 \
+            --key-id ${{ secrets.APPLE_API_KEY_ID }} \
+            --issuer ${{ secrets.APPLE_API_ISSUER_ID }} \
+            --wait \
+            --timeout 2h
+
+      - name: Staple
+        if: startsWith(github.ref, 'refs/tags/') && !endsWith(github.ref_name, '-test')
+        run: xcrun stapler staple build/bin/clickwheel.app
+
+      - name: Re-create ZIP with stapled app
+        if: startsWith(github.ref, 'refs/tags/') && !endsWith(github.ref_name, '-test')
+        run: |
+          cd build/bin
+          rm clickwheel-macos-universal.zip
+          ditto -c -k --keepParent clickwheel.app clickwheel-macos-universal.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickwheel-macos-universal
+          path: build/bin/clickwheel-macos-universal.zip
+
+  build-linux-amd64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+
+      - name: Set version in wails.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.info.productVersion = $v | .info.productName = "Clickwheel"' wails.json > tmp.json && mv tmp.json wails.json
+
+      - name: Build
+        run: |
+          wails build -platform linux/amd64 \
+            -tags webkit2_41 \
+            -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}"
+
+      - name: Compress
+        run: |
+          cd build/bin
+          tar -czvf clickwheel-linux-amd64.tar.gz clickwheel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickwheel-linux-amd64
+          path: build/bin/clickwheel-linux-amd64.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+
+      - name: Set version in wails.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.info.productVersion = $v | .info.productName = "Clickwheel"' wails.json > tmp.json && mv tmp.json wails.json
+
+      - name: Build
+        run: |
+          wails build -platform linux/arm64 \
+            -tags webkit2_41 \
+            -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}"
+
+      - name: Compress
+        run: |
+          cd build/bin
+          tar -czvf clickwheel-linux-arm64.tar.gz clickwheel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickwheel-linux-arm64
+          path: build/bin/clickwheel-linux-arm64.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+
+      - name: Set version in wails.json
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.info.productVersion = $v | .info.productName = "Clickwheel"' wails.json > tmp.json && mv tmp.json wails.json
+
+      - name: Build
+        run: |
+          wails build -platform windows/amd64 `
+            -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}"
+
+      - name: Compress
+        run: Compress-Archive -Path build\bin\clickwheel.exe -DestinationPath build\bin\clickwheel-windows-amd64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickwheel-windows-amd64
+          path: build/bin/clickwheel-windows-amd64.zip
+
+  build-windows-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+
+      - name: Set version in wails.json
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.info.productVersion = $v | .info.productName = "Clickwheel"' wails.json > tmp.json && mv tmp.json wails.json
+
+      - name: Build
+        run: |
+          wails build -platform windows/arm64 `
+            -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}"
+
+      - name: Compress
+        run: Compress-Archive -Path build\bin\clickwheel.exe -DestinationPath build\bin\clickwheel-windows-arm64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickwheel-windows-arm64
+          path: build/bin/clickwheel-windows-arm64.zip
+
+  release:
+    needs: [build-macos, build-linux-amd64, build-linux-arm64, build-windows, build-windows-arm64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') && !endsWith(github.ref_name, '-test')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@git-cliff
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          {
+            echo 'CHANGELOG<<EOF'
+            git cliff --config-url https://gist.githubusercontent.com/rmitchellscott/823c46de7a1c3e6d57e9de90ee00d84a/raw/cliff.toml \
+              --latest --strip header | tail -n +2
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          files: |
+            artifacts/clickwheel-macos-universal/clickwheel-macos-universal.zip
+            artifacts/clickwheel-linux-amd64/clickwheel-linux-amd64.tar.gz
+            artifacts/clickwheel-linux-arm64/clickwheel-linux-arm64.tar.gz
+            artifacts/clickwheel-windows-amd64/clickwheel-windows-amd64.zip
+            artifacts/clickwheel-windows-arm64/clickwheel-windows-arm64.zip
