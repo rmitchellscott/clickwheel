@@ -65,7 +65,7 @@ func (p *preparedTrack) cleanup() {
 	}
 }
 
-func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackItem, format string, bitRate int) *preparedTrack {
+func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackItem, format string, bitRate int, mono bool) *preparedTrack {
 	if format == "" {
 		format = "aac"
 	}
@@ -76,6 +76,9 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 	needsXcode := !lossyCompatible[item.Suffix] &&
 		item.Suffix != format &&
 		!(item.Suffix == "m4a" && format == "aac")
+	if mono {
+		needsXcode = true
+	}
 
 	tmpDir, err := os.MkdirTemp("", "clickwheel-")
 	if err != nil {
@@ -104,7 +107,7 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 	var finalPath string
 	if needsXcode {
 		finalPath = filepath.Join(tmpDir, "output"+ext)
-		if err := transcode.Transcode(ctx, srcPath, finalPath, format, bitRate); err != nil {
+		if err := transcode.Transcode(ctx, srcPath, finalPath, format, bitRate, mono); err != nil {
 			os.RemoveAll(tmpDir)
 			return &preparedTrack{item: item, err: fmt.Errorf("transcoding: %w", err)}
 		}
@@ -123,7 +126,7 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 	return &preparedTrack{item: item, data: data}
 }
 
-func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int) error {
+func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int, mono bool) error {
 	if p.err != nil {
 		return p.err
 	}
@@ -137,7 +140,8 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 	}
 
 	item := p.item
-	keptOriginal := lossyCompatible[item.Suffix] &&
+	keptOriginal := !mono &&
+		lossyCompatible[item.Suffix] &&
 		item.Suffix != format &&
 		!(item.Suffix == "m4a" && format == "aac")
 
@@ -198,8 +202,8 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 }
 
 func TransferTrack(ctx context.Context, sub *subsonic.Client, dev *ipod.Device, item TrackItem, format string, bitRate int) error {
-	p := DownloadAndTranscode(ctx, sub, item, format, bitRate)
-	return InstallTrack(dev, p, format, bitRate)
+	p := DownloadAndTranscode(ctx, sub, item, format, bitRate, false)
+	return InstallTrack(dev, p, format, bitRate, false)
 }
 
 func bookCacheDir() (string, error) {
@@ -440,7 +444,7 @@ func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev
 	if needsTranscode {
 		onStep("Transcoding")
 		finalPath = filepath.Join(tmpDir, "output.mp3")
-		if err := transcode.Transcode(ctx, srcPath, finalPath, "mp3", 128); err != nil {
+		if err := transcode.Transcode(ctx, srcPath, finalPath, "mp3", 128, false); err != nil {
 			return fmt.Errorf("transcoding %s: %w", item.Title, err)
 		}
 		ext = ".mp3"

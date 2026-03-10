@@ -143,8 +143,12 @@ func RemuxToM4A(ctx context.Context, input, output string) error {
 	})
 }
 
-func Transcode(ctx context.Context, input, output, format string, bitRate int) error {
+func Transcode(ctx context.Context, input, output, format string, bitRate int, mono bool) error {
 	br := fmt.Sprintf("%dk", bitRate)
+	ac := "2"
+	if mono {
+		ac = "1"
+	}
 	switch format {
 	case "aac":
 		return runFFmpeg(ctx, []string{
@@ -153,7 +157,7 @@ func Transcode(ctx context.Context, input, output, format string, bitRate int) e
 			"-c:a", "aac",
 			"-b:a", br,
 			"-ar", "44100",
-			"-ac", "2",
+			"-ac", ac,
 			"-aac_pns", "0",
 			"-profile:a", "aac_low",
 			"-movflags", "+faststart",
@@ -166,7 +170,7 @@ func Transcode(ctx context.Context, input, output, format string, bitRate int) e
 			"-c:a", "libmp3lame",
 			"-b:a", br,
 			"-ar", "44100",
-			"-ac", "2",
+			"-ac", ac,
 			"-y", output,
 		})
 	case "alac":
@@ -175,7 +179,7 @@ func Transcode(ctx context.Context, input, output, format string, bitRate int) e
 			"-vn",
 			"-c:a", "alac",
 			"-ar", "44100",
-			"-ac", "2",
+			"-ac", ac,
 			"-movflags", "+faststart",
 			"-f", "ipod",
 			"-y", output,

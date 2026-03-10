@@ -120,6 +120,7 @@ export interface SyncSettings {
   musicBitRate: number
   syncPodcastPosition: boolean
   twoWayPodcastSync: boolean
+  mixToMono: boolean
 }
 
 export interface SyncPlanSummary {

@@ -380,31 +380,35 @@ func capsForProfile(profile string) *DeviceCapabilities {
 	switch profile {
 	case "ipod1g":
 		return &DeviceCapabilities{
-			SupportsPodcast: false,
-			SupportsVideo:   false,
-			SupportsGapless: false,
-			DBVersion:       0x13,
+			SupportsPodcast:      false,
+			SupportsVideo:        false,
+			SupportsGapless:      false,
+			SupportsLibraryIndex: true,
+			DBVersion:            0x13,
 		}
 	case "ipod4g":
 		return &DeviceCapabilities{
-			SupportsPodcast: true,
-			SupportsVideo:   false,
-			SupportsGapless: false,
-			DBVersion:       0x13,
+			SupportsPodcast:      true,
+			SupportsVideo:        false,
+			SupportsGapless:      false,
+			SupportsLibraryIndex: true,
+			DBVersion:            0x13,
 		}
 	case "ipodvideo5g":
 		return &DeviceCapabilities{
-			SupportsPodcast: true,
-			SupportsVideo:   true,
-			SupportsGapless: true,
-			DBVersion:       0x19,
+			SupportsPodcast:      true,
+			SupportsVideo:        true,
+			SupportsGapless:      true,
+			SupportsLibraryIndex: true,
+			DBVersion:            0x19,
 		}
 	case "classic":
 		return &DeviceCapabilities{
-			SupportsPodcast: true,
-			SupportsVideo:   true,
-			SupportsGapless: true,
-			DBVersion:       0x30,
+			SupportsPodcast:      true,
+			SupportsVideo:        true,
+			SupportsGapless:      true,
+			SupportsLibraryIndex: true,
+			DBVersion:            0x30,
 		}
 	case "none":
 		return nil

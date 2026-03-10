@@ -749,6 +749,7 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 
 	format := e.device.SyncSettings.MusicFormat
 	bitRate := e.device.SyncSettings.MusicBitRate
+	mono := e.device.SyncSettings.MixToMono
 
 	sinceCheckpoint := 0
 	checkpoint := func() {
@@ -782,7 +783,7 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			go func() {
 				defer wg.Done()
 				for idx := range jobs {
-					results[idx] <- DownloadAndTranscode(ctx, e.sub, plan.AddTracks[idx], format, bitRate)
+					results[idx] <- DownloadAndTranscode(ctx, e.sub, plan.AddTracks[idx], format, bitRate, mono)
 				}
 			}()
 		}
@@ -814,7 +815,7 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			})
 
 			p := <-results[i]
-			if err := InstallTrack(dev, p, format, bitRate); err != nil {
+			if err := InstallTrack(dev, p, format, bitRate, mono); err != nil {
 				return err
 			}
 			tracker.record(item.Size, time.Since(lastDone))

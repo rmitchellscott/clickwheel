@@ -75,6 +75,7 @@ export function SettingsDialog() {
   const [twoWayBookSync, setTwoWayBookSync] = useState(false)
   const [splitBooks, setSplitBooks] = useState(true)
   const [splitHours, setSplitHours] = useState('8')
+  const [mixToMono, setMixToMono] = useState(false)
   const [syncPodcastPosition, setSyncPodcastPosition] = useState(true)
   const [twoWayPodcastSync, setTwoWayPodcastSync] = useState(false)
 
@@ -112,6 +113,7 @@ export function SettingsDialog() {
       setTwoWayBookSync(s.twoWayBookSync)
       setSplitBooks(s.splitLongBooks)
       setSplitHours(String(s.splitHoursLimit || 8))
+      setMixToMono(s.mixToMono ?? false)
       setSyncPodcastPosition(s.syncPodcastPosition)
       setTwoWayPodcastSync(s.twoWayPodcastSync)
       hydrated.current = true
@@ -127,11 +129,12 @@ export function SettingsDialog() {
       splitHoursLimit: parseInt(splitHours) || 8,
       musicFormat,
       musicBitRate: parseInt(musicBitRate) || 256,
+      mixToMono,
       syncPodcastPosition,
       twoWayPodcastSync,
     }
     SaveSyncSettings(settings)
-  }, [syncPlayCounts, syncBookPosition, twoWayBookSync, splitBooks, splitHours, musicFormat, musicBitRate, syncPodcastPosition, twoWayPodcastSync])
+  }, [syncPlayCounts, syncBookPosition, twoWayBookSync, splitBooks, splitHours, musicFormat, musicBitRate, mixToMono, syncPodcastPosition, twoWayPodcastSync])
 
   useEffect(() => {
     if (!hydrated.current) return
@@ -327,6 +330,12 @@ export function SettingsDialog() {
                   description="Write play counts from iPod back to your server after each sync"
                 >
                   <Toggle checked={syncPlayCounts} onChange={setSyncPlayCounts} />
+                </SettingRow>
+                <SettingRow
+                  label="Mix to mono"
+                  description="Combine stereo channels into mono"
+                >
+                  <Toggle checked={mixToMono} onChange={setMixToMono} />
                 </SettingRow>
               </div>
             )}
