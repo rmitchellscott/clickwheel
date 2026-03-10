@@ -20,16 +20,17 @@ func toSet(ids []string) map[string]bool {
 }
 
 type TrackItem struct {
-	SourceID string
-	Title    string
-	Artist   string
-	Album    string
-	Genre    string
-	Track    int
-	Year     int
-	Duration int
-	Size     int64
-	Suffix   string
+	SourceID   string
+	Title      string
+	Artist     string
+	Album      string
+	Genre      string
+	Track      int
+	Year       int
+	Duration   int
+	Size       int64
+	Suffix     string
+	CoverArtID string
 }
 
 type BookItem struct {
@@ -112,16 +113,17 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 				}
 			}
 			plan.AddTracks = append(plan.AddTracks, TrackItem{
-				SourceID: song.ID,
-				Title:    song.Title,
-				Artist:   song.Artist,
-				Album:    song.Album,
-				Genre:    song.Genre,
-				Track:    song.Track,
-				Year:     song.Year,
-				Duration: song.Duration,
-				Size:     size,
-				Suffix:   song.Suffix,
+				SourceID:   song.ID,
+				Title:      song.Title,
+				Artist:     song.Artist,
+				Album:      song.Album,
+				Genre:      song.Genre,
+				Track:      song.Track,
+				Year:       song.Year,
+				Duration:   song.Duration,
+				Size:       size,
+				Suffix:     song.Suffix,
+				CoverArtID: song.CoverArt,
 			})
 		}
 	}

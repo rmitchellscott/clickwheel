@@ -2,28 +2,27 @@ package restore
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
+	"strings"
+	"sync"
 )
 
-const askpassScript = `#!/bin/bash
-osascript -e 'display dialog "clickwheel needs administrator privileges to restore your iPod." with title "clickwheel" default answer "" with hidden answer buttons {"Cancel","OK"} default button "OK"' -e 'text returned of result' 2>/dev/null
-`
+var (
+	sudoPassword string
+	passwordMu   sync.Mutex
+)
+
+func SetPassword(pw string) {
+	passwordMu.Lock()
+	sudoPassword = pw
+	passwordMu.Unlock()
+}
+
+func ClearPassword() {
+	SetPassword("")
+}
 
 func CheckPrivilege() PrivilegeResult {
-	askpass, err := writeAskpass()
-	if err != nil {
-		return PrivilegeResult{Granted: false, Error: err}
-	}
-	defer os.Remove(askpass)
-
-	cmd := exec.Command("sudo", "--askpass", "echo", "ok")
-	cmd.Env = append(os.Environ(), "SUDO_ASKPASS="+askpass)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return PrivilegeResult{Granted: false, Error: fmt.Errorf("privilege denied: %s", string(out))}
-	}
 	return PrivilegeResult{Granted: true}
 }
 
@@ -33,29 +32,20 @@ func RunPrivileged(_ string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("signed helper not found: %w", err)
 	}
 
-	askpass, err := writeAskpass()
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(askpass)
+	passwordMu.Lock()
+	pw := sudoPassword
+	passwordMu.Unlock()
 
-	sudoArgs := append([]string{"--askpass", helper}, args...)
+	if pw == "" {
+		return nil, fmt.Errorf("no admin password provided")
+	}
+
+	sudoArgs := append([]string{"-S", helper}, args...)
 	cmd := exec.Command("sudo", sudoArgs...)
-	cmd.Env = append(os.Environ(), "SUDO_ASKPASS="+askpass)
-	return cmd.CombinedOutput()
-}
-
-func writeAskpass() (string, error) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("cache dir: %w", err)
+	cmd.Stdin = strings.NewReader(pw + "\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil && strings.Contains(string(out), "Sorry, try again") {
+		return out, fmt.Errorf("incorrect password")
 	}
-	p := filepath.Join(dir, "clickwheel", "askpass.sh")
-	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(p, []byte(askpassScript), 0700); err != nil {
-		return "", err
-	}
-	return p, nil
+	return out, err
 }

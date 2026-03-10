@@ -50,4 +50,6 @@ func partitionAndFormatDirect(rawDiskPath string, firmwarePartSize int64, sector
 
 func MountDataPartition(_ string) error { return nil }
 
-func CheckFullDiskAccess(_ string) bool { return true }
+func FindMountPoint(_ string) (string, error) {
+	return "", fmt.Errorf("findMountPoint not implemented on windows")
+}

@@ -206,3 +206,30 @@ func (c *Client) Scrobble(songID string) error {
 	_, err := c.get("scrobble", url.Values{"id": {songID}})
 	return err
 }
+
+func (c *Client) GetCoverArt(coverArtID string, size int) ([]byte, error) {
+	u, err := url.Parse(c.serverURL)
+	if err != nil {
+		return nil, err
+	}
+	u.Path += "/rest/getCoverArt"
+
+	q := c.authParams()
+	q.Set("id", coverArtID)
+	if size > 0 {
+		q.Set("size", strconv.Itoa(size))
+	}
+	u.RawQuery = q.Encode()
+
+	resp, err := c.http.Get(u.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("getCoverArt failed: %s", resp.Status)
+	}
+
+	return io.ReadAll(resp.Body)
+}

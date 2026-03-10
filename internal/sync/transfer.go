@@ -157,7 +157,7 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		}
 	}
 
-	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext)
+	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext, dev.Capabilities().MusicDirs)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
@@ -181,6 +181,15 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		FiletypeKey: fileType,
 		MediaType:   itunesdb.MediaTypeMusic,
 		SourceID:    item.SourceID,
+		CoverArtID:  item.CoverArtID,
+	}
+
+	if gi := transcode.ProbeGapless(destPath); gi != nil {
+		track.Pregap = gi.EncoderDelay
+		track.Postgap = gi.Padding
+		track.SampleCount = gi.SampleCount
+		track.GaplessTrackFlag = 1
+		track.GaplessData = 1
 	}
 
 	dev.DB.AddTrack(track)
@@ -273,7 +282,7 @@ func ensureBookM4B(ctx context.Context, abs *audiobookshelf.Client, item BookIte
 
 func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item BookItem, m4bPath string, onStep func(string)) error {
 	onStep("Copying to iPod")
-	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b")
+	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b", dev.Capabilities().MusicDirs)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
@@ -363,7 +372,7 @@ func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 			return err
 		}
 
-		destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b")
+		destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b", dev.Capabilities().MusicDirs)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			return err
 		}
@@ -442,7 +451,7 @@ func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev
 		return err
 	}
 
-	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext)
+	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext, dev.Capabilities().MusicDirs)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}

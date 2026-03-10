@@ -32,6 +32,12 @@ var MHBDSchemeToChecksum = map[int]ChecksumType{
 	4: ChecksumHashAB,
 }
 
+type ArtworkFormat struct {
+	FormatID int
+	Width    int
+	Height   int
+}
+
 type DeviceCapabilities struct {
 	Checksum              ChecksumType
 	IsShuffle             bool
@@ -44,6 +50,7 @@ type DeviceCapabilities struct {
 	SupportsPhoto         bool
 	SupportsChapterImage  bool
 	SupportsSparseArtwork bool
+	SupportsLibraryIndex  bool
 	MusicDirs             int
 	UsesSQLiteDB          bool
 	DBVersion             uint32
@@ -53,6 +60,7 @@ type DeviceCapabilities struct {
 	ModelName             string
 	HashABCalc            HashABCalculator
 	HashInfo              *HashInfo
+	CoverArtFormats       []ArtworkFormat
 }
 
 type modelInfo struct {
@@ -302,6 +310,43 @@ var ipodModels = map[string]modelInfo{
 	"MKML2": {"iPod Shuffle", "4th Gen", "2GB", "Red"},
 }
 
+var artClassic = []ArtworkFormat{
+	{1061, 56, 56},
+	{1055, 128, 128},
+	{1060, 320, 320},
+}
+
+var artPhoto = []ArtworkFormat{
+	{1009, 42, 30},
+	{1015, 130, 88},
+	{1017, 320, 320},
+	{1019, 720, 480},
+	{1024, 320, 240},
+}
+
+var artNano1G2G = []ArtworkFormat{
+	{1027, 42, 42},
+	{1031, 100, 100},
+}
+
+var artVideo = []ArtworkFormat{
+	{1028, 100, 100},
+	{1029, 200, 200},
+}
+
+var artNano4G = []ArtworkFormat{
+	{1074, 50, 50},
+	{1078, 80, 80},
+	{1071, 240, 240},
+}
+
+var artNano5G = []ArtworkFormat{
+	{1074, 50, 50},
+	{1078, 80, 80},
+	{1056, 128, 128},
+	{1073, 240, 240},
+}
+
 var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 	{"iPod", "1st Gen"}: {
 		SupportsPodcast: false,
@@ -351,48 +396,57 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		MusicDirs:       20,
 		DBVersion:       0x13,
 		ByteOrder:       "le",
+		CoverArtFormats: artPhoto,
 	},
 	{"iPod Video", "5th Gen"}: {
-		SupportsVideo:   true,
-		SupportsArtwork: true,
-		SupportsPhoto:   true,
-		SupportsPodcast: true,
-		HasScreen:       true,
-		MusicDirs:       20,
-		DBVersion:       0x19,
-		ByteOrder:       "le",
+		SupportsVideo:       true,
+		SupportsArtwork:     true,
+		SupportsPhoto:       true,
+		SupportsPodcast:     true,
+		SupportsLibraryIndex: true,
+		HasScreen:           true,
+		MusicDirs:           20,
+		DBVersion:           0x19,
+		ByteOrder:           "le",
+		CoverArtFormats:     artVideo,
 	},
 	{"iPod Video", "5.5th Gen"}: {
-		SupportsVideo:   true,
-		SupportsGapless: true,
-		SupportsArtwork: true,
-		SupportsPhoto:   true,
-		SupportsPodcast: true,
-		HasScreen:       true,
-		MusicDirs:       20,
-		DBVersion:       0x19,
-		ByteOrder:       "le",
+		SupportsVideo:       true,
+		SupportsGapless:     true,
+		SupportsArtwork:     true,
+		SupportsPhoto:       true,
+		SupportsPodcast:     true,
+		SupportsLibraryIndex: true,
+		HasScreen:           true,
+		MusicDirs:           20,
+		DBVersion:           0x19,
+		ByteOrder:           "le",
+		CoverArtFormats:     artVideo,
 	},
 	{"iPod Video U2", "5th Gen"}: {
-		SupportsVideo:   true,
-		SupportsArtwork: true,
-		SupportsPhoto:   true,
-		SupportsPodcast: true,
-		HasScreen:       true,
-		MusicDirs:       20,
-		DBVersion:       0x19,
-		ByteOrder:       "le",
+		SupportsVideo:       true,
+		SupportsArtwork:     true,
+		SupportsPhoto:       true,
+		SupportsPodcast:     true,
+		SupportsLibraryIndex: true,
+		HasScreen:           true,
+		MusicDirs:           20,
+		DBVersion:           0x19,
+		ByteOrder:           "le",
+		CoverArtFormats:     artVideo,
 	},
 	{"iPod Video U2", "5.5th Gen"}: {
-		SupportsVideo:   true,
-		SupportsGapless: true,
-		SupportsArtwork: true,
-		SupportsPhoto:   true,
-		SupportsPodcast: true,
-		HasScreen:       true,
-		MusicDirs:       20,
-		DBVersion:       0x19,
-		ByteOrder:       "le",
+		SupportsVideo:       true,
+		SupportsGapless:     true,
+		SupportsArtwork:     true,
+		SupportsPhoto:       true,
+		SupportsPodcast:     true,
+		SupportsLibraryIndex: true,
+		HasScreen:           true,
+		MusicDirs:           20,
+		DBVersion:           0x19,
+		ByteOrder:           "le",
+		CoverArtFormats:     artVideo,
 	},
 	{"iPod Classic", "1st Gen"}: {
 		Checksum:              ChecksumHash58,
@@ -403,10 +457,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsChapterImage:  true,
 		SupportsSparseArtwork: true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             50,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artClassic,
 	},
 	{"iPod Classic", "2nd Gen"}: {
 		Checksum:              ChecksumHash58,
@@ -417,10 +473,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsChapterImage:  true,
 		SupportsSparseArtwork: true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             50,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artClassic,
 	},
 	{"iPod Classic", "3rd Gen"}: {
 		Checksum:              ChecksumHash58,
@@ -431,10 +489,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsChapterImage:  true,
 		SupportsSparseArtwork: true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             50,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artClassic,
 	},
 	{"iPod Mini", "1st Gen"}: {
 		SupportsArtwork: false,
@@ -460,6 +520,7 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		MusicDirs:       14,
 		DBVersion:       0x13,
 		ByteOrder:       "le",
+		CoverArtFormats: artNano1G2G,
 	},
 	{"iPod Nano", "2nd Gen"}: {
 		SupportsArtwork: true,
@@ -469,6 +530,7 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		MusicDirs:       14,
 		DBVersion:       0x13,
 		ByteOrder:       "le",
+		CoverArtFormats: artNano1G2G,
 	},
 	{"iPod Nano", "3rd Gen"}: {
 		Checksum:              ChecksumHash58,
@@ -478,10 +540,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsPhoto:         true,
 		SupportsSparseArtwork: true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             20,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artClassic,
 	},
 	{"iPod Nano", "4th Gen"}: {
 		Checksum:              ChecksumHash58,
@@ -492,10 +556,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsChapterImage:  true,
 		SupportsSparseArtwork: true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             20,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artNano4G,
 	},
 	{"iPod Nano", "5th Gen"}: {
 		Checksum:              ChecksumHash72,
@@ -506,10 +572,12 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsSparseArtwork: true,
 		SupportsCompressedDB:  true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             20,
 		DBVersion:             0x30,
 		ByteOrder:             "le",
+		CoverArtFormats:       artNano5G,
 	},
 	{"iPod Nano", "6th Gen"}: {
 		Checksum:              ChecksumHashAB,
@@ -519,6 +587,7 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsCompressedDB:  true,
 		UsesSQLiteDB:          true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             20,
 		DBVersion:             0x30,
@@ -533,6 +602,7 @@ var familyGenCapabilities = map[familyGen]*DeviceCapabilities{
 		SupportsCompressedDB:  true,
 		UsesSQLiteDB:          true,
 		SupportsPodcast:       true,
+		SupportsLibraryIndex:  true,
 		HasScreen:             true,
 		MusicDirs:             20,
 		DBVersion:             0x30,
@@ -624,6 +694,14 @@ func CapabilitiesForModel(modelNumber string) *DeviceCapabilities {
 		return nil
 	}
 	caps, found := familyGenCapabilities[familyGen{info.Family, info.Generation}]
+	if !found {
+		return nil
+	}
+	return caps
+}
+
+func CapabilitiesForFamilyGen(family, generation string) *DeviceCapabilities {
+	caps, found := familyGenCapabilities[familyGen{family, generation}]
 	if !found {
 		return nil
 	}

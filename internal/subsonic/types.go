@@ -83,4 +83,6 @@ type Song struct {
 	Suffix      string `json:"suffix"`
 	Path        string `json:"path"`
 	PlayCount   int    `json:"playCount"`
+	CoverArt    string `json:"coverArt"`
+	AlbumID     string `json:"albumId"`
 }

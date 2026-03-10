@@ -7,6 +7,7 @@ require (
 	github.com/diskfs/go-diskfs v1.7.0
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/wailsapp/wails/v2 v2.11.0
+	golang.org/x/image v0.36.0
 	golang.org/x/sys v0.41.0
 	howett.net/plist v1.0.1
 )
@@ -45,7 +46,7 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
 
 // replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/mitchell/go/pkg/mod

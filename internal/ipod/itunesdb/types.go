@@ -127,6 +127,8 @@ type Track struct {
 	Category         string
 	EQSetting        string
 	Lyrics           string
+
+	CoverArtID string `json:"-"` // transient, not stored in iTunesDB
 }
 
 type Playlist struct {

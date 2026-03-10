@@ -3,6 +3,7 @@ package ipod
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -10,21 +11,25 @@ import (
 	"strings"
 
 	"clickwheel/internal/ipod/itunesdb"
+	"clickwheel/internal/ipod/vpd"
 )
 
 type DeviceInfo struct {
-	MountPoint      string `json:"mountPoint"`
-	Name            string `json:"name"`
-	FreeSpace       int64  `json:"freeSpace"`
-	TotalSpace      int64  `json:"totalSpace"`
-	Family          string `json:"family"`
-	Generation      string `json:"generation"`
-	Capacity        string `json:"capacity"`
-	Color           string `json:"color"`
-	Model           string `json:"model"`
-	Icon            string `json:"icon"`
-	DisplayCapacity string `json:"displayCapacity"`
-	SerialNumber    string `json:"serialNumber,omitempty"`
+	MountPoint         string `json:"mountPoint"`
+	Name               string `json:"name"`
+	FreeSpace          int64  `json:"freeSpace"`
+	TotalSpace         int64  `json:"totalSpace"`
+	Family             string `json:"family"`
+	Generation         string `json:"generation"`
+	Capacity           string `json:"capacity"`
+	Color              string `json:"color"`
+	Model              string `json:"model"`
+	Icon               string `json:"icon"`
+	DisplayCapacity    string `json:"displayCapacity"`
+	SerialNumber       string `json:"serialNumber,omitempty"`
+	FirewireGUID       string `json:"firewireGuid,omitempty"`
+	NeedsSysInfoRepair bool   `json:"needsSysInfoRepair,omitempty"`
+	ProposedSysInfo    string `json:"proposedSysInfo,omitempty"`
 }
 
 type modelInfo struct {
@@ -492,6 +497,104 @@ var familyFallback = map[string]string{
 	"ipod shuffle":   "iPod133D-Silver.png",
 }
 
+var serialLast3ToModel = map[string]string{
+	"Y5N": "MB029", "YMV": "MB147", "YMU": "MB145", "YMX": "MB150",
+	"2C5": "MB562", "2C7": "MB565",
+	"9ZS": "MC293", "9ZU": "MC297",
+	"LG6": "M8541", "NAM": "M8541", "MJ2": "M8541",
+	"ML1": "M8709", "MME": "M8709",
+	"MMB": "M8737", "MMC": "M8738",
+	"NGE": "M8740", "NGH": "M8740", "MMF": "M8741",
+	"NLW": "M8946", "NRH": "M8976", "QQF": "M9460",
+	"PQ5": "M9244", "PNT": "M9244", "NLY": "M8948", "NM7": "M8948",
+	"PNU": "M9245",
+	"PS9": "M9282", "Q8U": "M9282", "PQ7": "M9268",
+	"V9V": "M9787", "S2X": "M9787",
+	"TDU": "MA079", "TDS": "MA079", "TM2": "MA127",
+	"SAZ": "M9830", "SB1": "M9830", "SAY": "M9829",
+	"R5Q": "M9585", "R5R": "M9586", "R5T": "M9586",
+	"PFW": "M9160", "PRC": "M9160",
+	"QKL": "M9436", "QKQ": "M9436", "QKK": "M9435", "QKP": "M9435",
+	"QKJ": "M9434", "QKN": "M9434", "QKM": "M9437", "QKR": "M9437",
+	"S41": "M9800", "S4C": "M9800", "S43": "M9802", "S45": "M9804",
+	"S47": "M9806", "S4J": "M9806", "S42": "M9801", "S44": "M9803",
+	"S48": "M9807",
+	"RS9": "M9724", "QGV": "M9724", "TSX": "M9724", "PFV": "M9724",
+	"R80": "M9724", "RSA": "M9725", "TSY": "M9725", "C60": "M9725",
+	"VTE": "MA546", "VTF": "MA546",
+	"XQ5": "MA947", "XQS": "MA947", "XQV": "MA949", "XQX": "MA949",
+	"YX7": "MB228", "XQY": "MA951", "YX8": "MA951", "XR1": "MA953",
+	"YXA": "MB233", "YX6": "MB225", "YX9": "MB225",
+	"8CQ": "MC167", "1ZH": "MB518",
+	"A1S": "MC306", "A78": "MC323", "ALB": "MC381", "ALD": "MC384",
+	"ALG": "MC387", "4NZ": "MB867", "891": "MC164",
+	"A1L": "MC303", "A1U": "MC307", "A7B": "MC328", "A7D": "MC331",
+	"CMJ": "MC584", "CMK": "MC585", "FDM": "MC749", "FDN": "MC750",
+	"FDP": "MC751",
+	"TUZ": "MA004", "TV0": "MA005", "TUY": "MA099", "TV1": "MA107",
+	"UYN": "MA350", "UYP": "MA352",
+	"UNA": "MA350", "UNB": "MA350", "UPR": "MA352", "UPS": "MA352",
+	"SZB": "MA004", "SZV": "MA004", "SZW": "MA004",
+	"SZC": "MA005", "SZT": "MA005",
+	"TJT": "MA099", "TJU": "MA099", "TK2": "MA107", "TK3": "MA107",
+	"VQ5": "MA477", "VQ6": "MA477",
+	"V8T": "MA426", "V8U": "MA426",
+	"V8W": "MA428", "V8X": "MA428",
+	"VQH": "MA487", "VQJ": "MA487",
+	"VQK": "MA489", "VQL": "MA489", "VKL": "MA489",
+	"WL2": "MA725", "WL3": "MA725",
+	"X9A": "MA726", "X9B": "MA726",
+	"VQT": "MA497", "VQU": "MA497",
+	"YER": "MA899", "YES": "MA899",
+	"Y0P": "MA978", "Y0R": "MA980",
+	"YXR": "MB249", "YXV": "MB257", "YXT": "MB253", "YXX": "MB261",
+	"37P": "MB663", "37Q": "MB666", "37H": "MB654", "1P1": "MB480",
+	"37K": "MB657", "37L": "MB660", "2ME": "MB598",
+	"3QS": "MB732", "3QT": "MB735", "3QU": "MB739", "3QW": "MB742",
+	"3QX": "MB745", "3QY": "MB748", "3R0": "MB754", "3QZ": "MB751",
+	"5B7": "MB903", "5B8": "MB905", "5B9": "MB907", "5BA": "MB909",
+	"5BB": "MB911", "5BC": "MB913", "5BD": "MB915", "5BE": "MB917",
+	"5BF": "MB918",
+	"71V": "MC027", "71Y": "MC031", "721": "MC034", "726": "MC037",
+	"72A": "MC040", "72F": "MC046", "72K": "MC049", "72L": "MC050",
+	"72Q": "MC060", "72R": "MC062",
+	"72S": "MC064", "72X": "MC066", "734": "MC068", "738": "MC070",
+	"739": "MC072", "73A": "MC074", "73B": "MC075",
+	"CMN": "MC525", "CMP": "MC526",
+	"DVX": "MC688", "DVY": "MC689", "DW0": "MC690", "DW1": "MC691",
+	"DW2": "MC692", "DW3": "MC693",
+	"DW4": "MC694", "DW5": "MC695", "DW6": "MC696", "DW7": "MC697",
+	"DW8": "MC698", "DW9": "MC699",
+	"SZ9": "MA002", "WEC": "MA002", "WED": "MA002", "WEG": "MA002",
+	"WEH": "MA002", "WEL": "MA002",
+	"TXK": "MA146", "TXM": "MA146", "WEF": "MA146",
+	"WEJ": "MA146", "WEK": "MA146",
+	"SZA": "MA003", "SZU": "MA003", "TXL": "MA147", "TXN": "MA147",
+	"V9K": "MA444", "V9L": "MA444", "WU9": "MA444",
+	"VQM": "MA446", "V9M": "MA446", "V9N": "MA446", "WEE": "MA446",
+	"V9P": "MA448", "V9Q": "MA448",
+	"V9R": "MA450", "V9S": "MA450", "V95": "MA450",
+	"V96": "MA450", "WUC": "MA450",
+	"W9G": "MA664",
+}
+
+func lookupBySerial(serial string) *modelInfo {
+	_, info := lookupModelBySerial(serial)
+	return info
+}
+
+func lookupModelBySerial(serial string) (string, *modelInfo) {
+	if len(serial) < 3 {
+		return "", nil
+	}
+	suffix := strings.ToUpper(serial[len(serial)-3:])
+	modelNum, ok := serialLast3ToModel[suffix]
+	if !ok {
+		return "", nil
+	}
+	return modelNum, getModelInfo(modelNum)
+}
+
 var extractModelRe = regexp.MustCompile(`^(M[A-Z]?\d{3,4})`)
 
 func extractModelNumber(raw string) string {
@@ -621,10 +724,14 @@ func ReadSysInfo(mountPoint string) *DeviceInfo {
 	modelNum := extractModelNumber(modelNumRaw)
 	info := getModelInfo(modelNum)
 	if info == nil {
+		info = lookupBySerial(serialNumber)
+	}
+	if info == nil {
 		return &DeviceInfo{
 			Model:        modelNum,
 			Icon:         "iPodGeneric.png",
 			SerialNumber: serialNumber,
+			FirewireGUID: fwGuid,
 		}
 	}
 
@@ -636,6 +743,7 @@ func ReadSysInfo(mountPoint string) *DeviceInfo {
 		Model:        modelNum,
 		Icon:         imageForModel(modelNum),
 		SerialNumber: serialNumber,
+		FirewireGUID: fwGuid,
 	}
 }
 
@@ -657,9 +765,48 @@ func readIPodName(mountPoint string) string {
 	return ""
 }
 
+func queryVPDFallback(mountPoint string) (*DeviceInfo, string) {
+	vpdInfo, err := vpd.QueryVPD(mountPoint)
+	if err != nil {
+		log.Printf("[detect] VPD query failed: %v", err)
+		return nil, ""
+	}
+
+	family, generation := vpdInfo.FamilyGeneration()
+	di := &DeviceInfo{
+		Family:       family,
+		Generation:   generation,
+		SerialNumber: vpdInfo.SerialNumber,
+		FirewireGUID: vpdInfo.FireWireGUID,
+	}
+
+	serial := vpdInfo.SerialNumber
+	if serial == "" {
+		serial = vpdInfo.USBSerial
+	}
+	if modelNum, info := lookupModelBySerial(serial); info != nil {
+		di.Family = info.Family
+		di.Generation = info.Generation
+		di.Capacity = info.Capacity
+		di.Color = info.Color
+		di.Model = modelNum
+		vpdInfo.ModelNumStr = modelNum
+	}
+
+	di.Icon = resolveImageFilename(di.Family, di.Generation, di.Color)
+	return di, vpdInfo.ToSysInfo()
+}
+
 func fillDeviceInfo(di *DeviceInfo, sysInfo *DeviceInfo) {
 	if name := readIPodName(di.MountPoint); name != "" {
 		di.Name = name
+	}
+
+	if sysInfo == nil || sysInfo.Family == "" {
+		if vpdInfo, _ := queryVPDFallback(di.MountPoint); vpdInfo != nil {
+			sysInfo = vpdInfo
+			log.Printf("[detect] VPD fallback: family=%s gen=%s serial=%s", vpdInfo.Family, vpdInfo.Generation, vpdInfo.SerialNumber)
+		}
 	}
 
 	if sysInfo == nil {
@@ -673,6 +820,7 @@ func fillDeviceInfo(di *DeviceInfo, sysInfo *DeviceInfo) {
 	di.Model = sysInfo.Model
 	di.Icon = sysInfo.Icon
 	di.SerialNumber = sysInfo.SerialNumber
+	di.FirewireGUID = sysInfo.FirewireGUID
 	if di.TotalSpace > 0 {
 		di.DisplayCapacity = displayCapacity(parseCapacityGB(sysInfo.Capacity), di.TotalSpace)
 	} else if sysInfo.Capacity != "" {

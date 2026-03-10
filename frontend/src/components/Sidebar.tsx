@@ -1,9 +1,10 @@
 import { useAppStore } from '@/store/appStore'
 import { formatBytes } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Music, BookOpen, Podcast, RefreshCw, Settings, Circle, Loader2, ChevronDown } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Music, BookOpen, Podcast, RefreshCw, Settings, Circle, Loader2, ChevronDown, X } from 'lucide-react'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog'
 import { IPodIcon } from '@/components/IPodIcon'
 
 function EjectIcon({ className }: { className?: string }) {
@@ -15,7 +16,7 @@ function EjectIcon({ className }: { className?: string }) {
   )
 }
 import { useState } from 'react'
-import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection, SwitchDevice, GetKnownDevices, GetActiveDeviceID, GetInclusions } from '../../wailsjs/go/main/App'
+import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection, SwitchDevice, ForgetDevice, GetKnownDevices, GetActiveDeviceID, GetInclusions } from '../../wailsjs/go/main/App'
 
 const navItems = [
   { id: 'library' as const, label: 'Music', icon: Music },
@@ -40,6 +41,7 @@ export function Sidebar() {
   const [reconnectingNav, setReconnectingNav] = useState(false)
   const [reconnectingAbs, setReconnectingAbs] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [confirmForget, setConfirmForget] = useState<string | null>(null)
 
   const activeKnownDevice = knownDevices.find(d => d.deviceId === activeDeviceId)
 
@@ -49,6 +51,9 @@ export function Sidebar() {
     try {
       const info = await DetectIPod()
       setIPod(info)
+      if (info?.needsSysInfoRepair) {
+        useAppStore.getState().setSysInfoRepairOpen(true)
+      }
     } catch {
       setIPod(null)
     }
@@ -97,6 +102,29 @@ export function Sidebar() {
       }).catch(() => {})
     } catch {}
     setSwitcherOpen(false)
+  }
+
+  const forgetDevice = async (deviceId: string) => {
+    try {
+      await ForgetDevice(deviceId)
+      const [id, devices] = await Promise.all([GetActiveDeviceID(), GetKnownDevices()])
+      useAppStore.getState().setActiveDeviceId(id || '')
+      useAppStore.getState().setKnownDevices(devices || [])
+      if (id) {
+        GetInclusions().then(inc => {
+          if (!inc) return
+          useAppStore.setState({
+            includedPlaylists: new Set(inc.playlists || []),
+            includedAlbums: new Set(inc.albums || []),
+            includedArtists: new Set(inc.artists || []),
+            includedBooks: new Set(inc.books || []),
+            includedPodcasts: new Set(inc.podcasts || []),
+          })
+        }).catch(() => {})
+      }
+    } catch {}
+    setConfirmForget(null)
+    if (!useAppStore.getState().knownDevices.length) setSwitcherOpen(false)
   }
 
   const reconnectAbs = async () => {
@@ -220,15 +248,13 @@ export function Sidebar() {
                 <span className="text-sm font-medium text-sidebar-accent-foreground truncate min-w-0">
                   {activeKnownDevice.name || 'iPod'}
                 </span>
-                {knownDevices.length > 1 && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => setSwitcherOpen(!switcherOpen)}
-                    className="shrink-0 ml-auto h-6 w-6 p-0 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 hover:bg-sidebar-border/50"
-                  >
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", switcherOpen && "rotate-180")} />
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  onClick={() => { setSwitcherOpen(!switcherOpen); setConfirmForget(null) }}
+                  className="shrink-0 ml-auto h-6 w-6 p-0 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 hover:bg-sidebar-border/50"
+                >
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", switcherOpen && "rotate-180")} />
+                </Button>
               </div>
               <div className="text-[11px] text-sidebar-foreground/60">
                 {[activeKnownDevice.family, activeKnownDevice.generation].filter(Boolean).join(' \u00B7 ')}
@@ -238,20 +264,27 @@ export function Sidebar() {
               )}
             </div>
           </div>
-          {switcherOpen && knownDevices.length > 1 && (
+          {switcherOpen && (
             <div className="mt-1.5 pt-1.5 border-t border-sidebar-border/50 space-y-0.5">
               {knownDevices.map(d => (
-                <button
-                  key={d.deviceId}
-                  onClick={() => switchDevice(d.deviceId)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-1.5 py-1 rounded text-xs text-left hover:bg-sidebar-border/50 transition-colors',
-                    d.deviceId === activeDeviceId && 'bg-sidebar-border/50 font-medium'
-                  )}
-                >
-                  <IPodIcon size={16} icon={d.icon} className="shrink-0" />
-                  <span className="truncate">{d.name || 'iPod'}</span>
-                </button>
+                <div key={d.deviceId} className="flex items-center group">
+                  <button
+                    onClick={() => switchDevice(d.deviceId)}
+                    className={cn(
+                      'flex-1 flex items-center gap-2 px-1.5 py-1 rounded text-xs text-left hover:bg-sidebar-border/50 transition-colors min-w-0',
+                      d.deviceId === activeDeviceId && 'bg-sidebar-border/50 font-medium'
+                    )}
+                  >
+                    <IPodIcon size={16} icon={d.icon} className="shrink-0" />
+                    <span className="truncate">{d.name || 'iPod'}</span>
+                  </button>
+                  <button
+                    onClick={() => setConfirmForget(d.deviceId)}
+                    className="shrink-0 h-5 w-5 flex items-center justify-center rounded text-sidebar-foreground/30 opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-sidebar-border/50 transition-all"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -361,6 +394,28 @@ export function Sidebar() {
           Settings
         </button>
       </div>
+
+      <AlertDialog open={!!confirmForget} onOpenChange={(open) => { if (!open) setConfirmForget(null) }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Forget {knownDevices.find(d => d.deviceId === confirmForget)?.name || 'iPod'}?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-1">This will:</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li>Remove this device from the known devices list</li>
+                  <li>Delete its locally backed-up config (sync state, inclusions)</li>
+                </ul>
+                <p className="mt-2">Reconnecting the iPod will set it up fresh.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className={buttonVariants({ variant: 'destructive' })} onClick={() => confirmForget && forgetDevice(confirmForget)}>Forget</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   )
 }

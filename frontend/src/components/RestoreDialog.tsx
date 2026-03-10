@@ -4,9 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { AlertTriangle, Loader2, CheckCircle, X, RotateCcw, ShieldAlert } from 'lucide-react'
-import { StartRestore, CancelRestore, GetRecommendedFirmware, GetIPSWCatalog, DetectUSBIPods, CheckFullDiskAccess } from '../../wailsjs/go/main/App'
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+import { AlertTriangle, Loader2, CheckCircle, X, RotateCcw, Lock } from 'lucide-react'
+import { StartRestore, CancelRestore, GetRecommendedFirmware, GetIPSWCatalog, DetectUSBIPods } from '../../wailsjs/go/main/App'
 import type { IPSWEntry } from '@/store/appStore'
 
 interface FirmwareMatch {
@@ -21,10 +20,11 @@ export function RestoreDialog() {
   const [selectedIndex, setSelectedIndex] = useState<number>(-1)
   const [deviceName, setDeviceName] = useState('iPod')
   const [confirmed, setConfirmed] = useState(false)
-  const [step, setStep] = useState<'configure' | 'confirm' | 'fda' | 'progress' | 'complete' | 'error'>('configure')
+  const [step, setStep] = useState<'configure' | 'confirm' | 'password' | 'progress' | 'complete' | 'error'>('configure')
   const [noAutoMatch, setNoAutoMatch] = useState(false)
   const [usbIPod, setUsbIPod] = useState<{model: {Name: string, Family: string, Generation: string}, mode: string, diskPath: string} | null>(null)
-  const [fdaChecked, setFdaChecked] = useState(false)
+  const [password, setPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
 
   useEffect(() => {
     if (!restoreModalOpen) return
@@ -35,6 +35,8 @@ export function RestoreDialog() {
     setSelectedIndex(-1)
     setNoAutoMatch(false)
     setUsbIPod(null)
+    setPassword('')
+    setPasswordError('')
 
     if (ipod) {
       setDeviceName(ipod.name || 'iPod')
@@ -83,7 +85,14 @@ export function RestoreDialog() {
       setStep('complete')
     }
     if (restoreError) {
-      setStep('error')
+      if (restoreError.includes('incorrect password')) {
+        setRestoreError(null)
+        setPassword('')
+        setPasswordError('Incorrect password. Please try again.')
+        setStep('password')
+      } else {
+        setStep('error')
+      }
     }
   }, [restoring, restoreProgress, restoreError])
 
@@ -92,8 +101,10 @@ export function RestoreDialog() {
     setRestoring(true)
     setRestoreError(null)
     try {
-      await StartRestore(selectedIndex, deviceName, usbIPod?.diskPath || '')
+      await StartRestore(selectedIndex, deviceName, usbIPod?.diskPath || '', password)
+      setPassword('')
     } catch (e) {
+      setPassword('')
       setRestoring(false)
       setRestoreError(String(e))
     }
@@ -189,7 +200,7 @@ export function RestoreDialog() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select firmware..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60">
                     {fullCatalog.map((fw, i) => (
                       <SelectItem key={i} value={String(i)}>
                         {fw.model} {fw.variant ? `(${fw.variant})` : ''} — v{fw.version}
@@ -235,13 +246,9 @@ export function RestoreDialog() {
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => { setStep('configure'); setConfirmed(false) }}>Back</Button>
-              <Button variant="destructive" disabled={!confirmed} onClick={async () => {
-                const fda = await CheckFullDiskAccess()
-                if (fda) {
-                  startRestore()
-                } else {
-                  setStep('fda')
-                }
+              <Button variant="destructive" disabled={!confirmed} onClick={() => {
+                setPasswordError('')
+                setStep('password')
               }}>
                 Erase & Restore
               </Button>
@@ -249,48 +256,36 @@ export function RestoreDialog() {
           </div>
         )}
 
-        {step === 'fda' && (
+        {step === 'password' && (
           <div className="p-6 space-y-4">
             <div className="flex items-center gap-3">
-              <ShieldAlert className="h-5 w-5 text-destructive shrink-0" />
+              <Lock className="h-5 w-5 text-muted-foreground shrink-0" />
               <div>
-                <h3 className="text-sm font-semibold">Full Disk Access Required</h3>
+                <h3 className="text-sm font-semibold">Administrator Password</h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  macOS requires Full Disk Access to write directly to the iPod's disk.
+                  Writing to the iPod's disk requires administrator privileges.
                 </p>
               </div>
             </div>
 
-            <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
-              <p className="font-medium">To grant access:</p>
-              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>Open <span className="font-medium text-foreground">System Settings</span></li>
-                <li>Go to <span className="font-medium text-foreground">Privacy & Security {'>'} Full Disk Access</span></li>
-                <li>Enable <span className="font-medium text-foreground">clickwheel</span> (or add it with the + button)</li>
-                <li>Restart the app if prompted</li>
-              </ol>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={e => { setPassword(e.target.value); setPasswordError('') }}
+                onKeyDown={e => { if (e.key === 'Enter' && password) startRestore() }}
+                autoFocus
+              />
+              {passwordError && (
+                <p className="text-xs text-destructive">{passwordError}</p>
+              )}
             </div>
 
-            {fdaChecked && (
-              <p className="text-xs text-destructive">Full Disk Access has not been granted yet. You may need to restart the app after enabling it.</p>
-            )}
-
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => { setStep('confirm'); setConfirmed(false) }}>Back</Button>
-              <Button variant="outline" onClick={() => {
-                BrowserOpenURL('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
-              }}>
-                Open Settings
-              </Button>
-              <Button onClick={async () => {
-                const fda = await CheckFullDiskAccess()
-                if (fda) {
-                  startRestore()
-                } else {
-                  setFdaChecked(true)
-                }
-              }}>
-                Check Again
+              <Button variant="outline" onClick={() => { setStep('confirm'); setConfirmed(false); setPassword('') }}>Back</Button>
+              <Button variant="destructive" disabled={!password} onClick={() => startRestore()}>
+                Erase & Restore
               </Button>
             </div>
           </div>
@@ -324,6 +319,14 @@ export function RestoreDialog() {
                 <h3 className="text-sm font-semibold">Restore complete</h3>
                 <p className="text-xs text-muted-foreground">Your iPod has been restored successfully.</p>
               </div>
+            </div>
+            <div className="bg-muted/50 rounded-lg p-3 text-xs space-y-1">
+              <p className="font-medium">To finish setup:</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>Disconnect the iPod from your computer</li>
+                <li>Plug it into a <span className="font-medium text-foreground">wall charger</span></li>
+                <li>Wait for the iPod to complete its initialization</li>
+              </ol>
             </div>
             <div className="flex justify-end">
               <Button onClick={close}>Done</Button>

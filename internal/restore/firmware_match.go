@@ -122,6 +122,21 @@ type FirmwareMatch struct {
 	Index int       `json:"index"`
 }
 
+func ModelForFirmwareIndex(index int) *IPodModel {
+	ensureFirmwareRules()
+	if index < 0 || index >= len(catalog) {
+		return nil
+	}
+	for _, rule := range firmwareRules {
+		for _, idx := range rule.indices {
+			if idx == index {
+				return ModelByFamilyGeneration(rule.family, rule.generation)
+			}
+		}
+	}
+	return nil
+}
+
 func MatchFirmware(family, generation, modelNum string) []FirmwareMatch {
 	ensureFirmwareRules()
 	family = strings.TrimSpace(family)

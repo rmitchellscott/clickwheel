@@ -66,7 +66,11 @@ var ipodModels = []IPodModel{
 		Family: "iPod Nano", Generation: "2nd Gen",
 	},
 	{
-		Name: "iPod Classic", DiskPID: 0x1262, DFUPID: 0x1223, WTFPID: 0x1241,
+		Name: "iPod Classic", DiskPID: 0x1261,
+		Family: "iPod Classic", Generation: "1st Gen",
+	},
+	{
+		Name: "iPod Classic (DFU)", DiskPID: 0x1262, DFUPID: 0x1223, WTFPID: 0x1241,
 		Family: "iPod Classic", Generation: "1st Gen",
 	},
 	{

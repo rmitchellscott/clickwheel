@@ -149,7 +149,7 @@ func (e *RestoreEngine) Run(ctx context.Context) error {
 		return err
 	}
 
-	e.emit(StateComplete, "Restore complete! Disconnect and plug into a wall charger to initialize.", 100)
+	e.emit(StateComplete, "Restore complete!", 100)
 	return nil
 }
 

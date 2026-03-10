@@ -243,6 +243,24 @@ func (c *DeviceConfig) SaveBoth(mountPoint string) error {
 	return c.Save()
 }
 
+func (c *HostConfig) RemoveKnownDevice(deviceID string) {
+	filtered := c.KnownDevices[:0]
+	for _, d := range c.KnownDevices {
+		if d.DeviceID != deviceID {
+			filtered = append(filtered, d)
+		}
+	}
+	c.KnownDevices = filtered
+}
+
+func DeviceBackupDir(deviceID string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "clickwheel", "devices", deviceID), nil
+}
+
 func (c *HostConfig) UpdateKnownDevice(dev KnownDevice) {
 	for i, d := range c.KnownDevices {
 		if d.DeviceID == dev.DeviceID {

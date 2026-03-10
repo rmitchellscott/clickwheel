@@ -54,24 +54,22 @@ func SerializeDatabase(db *Database, caps *DeviceCapabilities) []byte {
 	mhsdType2 := WriteMHSD(2, buildPlaylistBody(db, id0x24, trackIDs, false))
 	mhsdType3 := WriteMHSD(3, buildPlaylistBody(db, id0x24, trackIDs, true))
 
-	mhsdType4 := WriteMHSD(4, WriteMHLA(albums))
-	mhsdType8 := WriteMHSD(8, WriteMHLI(artists))
-	mhsdType5 := WriteMHSD(5, WriteMHLP(nil))
-	mhsdType6 := WriteMHSDEmptyStub(6)
-	mhsdType10 := WriteMHSDEmptyStub(10)
-
 	includePodcasts := caps == nil || caps.SupportsPodcast
+	includeLibIndex := caps == nil || caps.SupportsLibraryIndex
+
 	var datasets [][]byte
 	datasets = append(datasets, mhsdType1)
 	if includePodcasts {
 		datasets = append(datasets, mhsdType3)
 	}
 	datasets = append(datasets, mhsdType2)
-	datasets = append(datasets, mhsdType4)
-	datasets = append(datasets, mhsdType8)
-	datasets = append(datasets, mhsdType6)
-	datasets = append(datasets, mhsdType10)
-	datasets = append(datasets, mhsdType5)
+	if includeLibIndex {
+		datasets = append(datasets, WriteMHSD(4, WriteMHLA(albums)))
+		datasets = append(datasets, WriteMHSD(8, WriteMHLI(artists)))
+		datasets = append(datasets, WriteMHSDEmptyStub(6))
+		datasets = append(datasets, WriteMHSDEmptyStub(10))
+		datasets = append(datasets, WriteMHSD(5, WriteMHLP(nil)))
+	}
 
 	var body []byte
 	for _, ds := range datasets {
@@ -83,15 +81,28 @@ func SerializeDatabase(db *Database, caps *DeviceCapabilities) []byte {
 		version = caps.DBVersion
 	}
 
-	header := buildMHBDHeader(len(datasets), dbID, id0x24, version, len(body))
+	var hashScheme uint16
+	if caps != nil {
+		if scheme, ok := ChecksumMHBDScheme[caps.Checksum]; ok {
+			hashScheme = uint16(scheme)
+		}
+	}
+
+	header := buildMHBDHeader(len(datasets), dbID, id0x24, version, hashScheme, len(body))
 	result := append(header, body...)
 
-	if caps != nil && caps.FirewireID != "" {
+	if caps != nil {
 		switch caps.Checksum {
 		case ChecksumHash58:
-			result = WriteHash58(result, caps.FirewireID)
+			if caps.FirewireID != "" {
+				result = WriteHash58(result, caps.FirewireID)
+			}
+		case ChecksumHash72:
+			result = WriteHash72(result, caps.HashInfo)
 		case ChecksumHashAB:
-			result = WriteHashAB(result, caps.FirewireID, nil)
+			if caps.FirewireID != "" {
+				result = WriteHashAB(result, caps.FirewireID, caps.HashABCalc)
+			}
 		}
 	}
 
@@ -102,7 +113,7 @@ func (db *Database) Serialize() []byte {
 	return SerializeDatabase(db, nil)
 }
 
-func buildMHBDHeader(numDataSets int, dbID, id0x24 uint64, version uint32, bodyLen int) []byte {
+func buildMHBDHeader(numDataSets int, dbID, id0x24 uint64, version uint32, hashScheme uint16, bodyLen int) []byte {
 	totalLen := uint32(mhbdHeaderSize) + uint32(bodyLen)
 
 	buf := make([]byte, mhbdHeaderSize)
@@ -115,6 +126,7 @@ func buildMHBDHeader(numDataSets int, dbID, id0x24 uint64, version uint32, bodyL
 	binary.LittleEndian.PutUint64(buf[0x18:0x20], dbID)
 	binary.LittleEndian.PutUint16(buf[0x20:0x22], defaultPlatform)
 	binary.LittleEndian.PutUint64(buf[0x24:0x2C], id0x24)
+	binary.LittleEndian.PutUint16(buf[0x30:0x32], hashScheme)
 
 	_, tzOffset := time.Now().Zone()
 	binary.LittleEndian.PutUint32(buf[0x6C:0x70], uint32(int32(tzOffset)))

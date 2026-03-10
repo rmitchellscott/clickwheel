@@ -94,6 +94,22 @@ func MountDataPartition(rawDiskPath string) error {
 	return nil
 }
 
-func CheckFullDiskAccess(_ string) bool {
-	return true
+func FindMountPoint(rawDiskPath string) (string, error) {
+	out, err := exec.Command("diskutil", "info", "-plist", rawDiskPath+"s2").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("diskutil info: %w", err)
+	}
+	outStr := string(out)
+	idx := strings.Index(outStr, "<key>MountPoint</key>")
+	if idx == -1 {
+		return "", fmt.Errorf("MountPoint not found in diskutil output")
+	}
+	rest := outStr[idx:]
+	start := strings.Index(rest, "<string>")
+	end := strings.Index(rest, "</string>")
+	if start == -1 || end == -1 {
+		return "", fmt.Errorf("could not parse MountPoint value")
+	}
+	return rest[start+8 : end], nil
 }
+

@@ -16,6 +16,9 @@ func CheckPrivilege() PrivilegeResult {
 	return PrivilegeResult{Granted: true}
 }
 
+func SetPassword(_ string) {}
+func ClearPassword()       {}
+
 func RunPrivileged(command string, args ...string) ([]byte, error) {
 	allArgs := append([]string{command}, args...)
 	cmd := exec.Command("pkexec", allArgs...)

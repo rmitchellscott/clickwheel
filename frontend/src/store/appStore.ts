@@ -12,6 +12,8 @@ export interface IPodInfo {
   model: string
   icon: string
   displayCapacity: string
+  needsSysInfoRepair?: boolean
+  proposedSysInfo?: string
 }
 
 export interface Playlist {
@@ -230,6 +232,9 @@ interface AppState {
   usbDevice: USBDeviceInfo | null
   setUSBDevice: (d: USBDeviceInfo | null) => void
 
+  sysInfoRepairOpen: boolean
+  setSysInfoRepairOpen: (open: boolean) => void
+
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
 
@@ -342,6 +347,9 @@ export const useAppStore = create<AppState>((set) => ({
   setRestoreError: (restoreError) => set({ restoreError }),
   usbDevice: null,
   setUSBDevice: (usbDevice) => set({ usbDevice }),
+
+  sysInfoRepairOpen: false,
+  setSysInfoRepairOpen: (sysInfoRepairOpen) => set({ sysInfoRepairOpen }),
 
   settingsOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),

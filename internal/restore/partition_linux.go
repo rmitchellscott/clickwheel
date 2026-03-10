@@ -59,4 +59,17 @@ func partitionAndFormatDirect(rawDiskPath string, firmwarePartSize int64, sector
 
 func MountDataPartition(_ string) error { return nil }
 
-func CheckFullDiskAccess(_ string) bool { return true }
+func FindMountPoint(rawDiskPath string) (string, error) {
+	partDev := rawDiskPath + "2"
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return "", fmt.Errorf("read /proc/mounts: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == partDev {
+			return fields[1], nil
+		}
+	}
+	return "", fmt.Errorf("partition %s not found in /proc/mounts", partDev)
+}

@@ -3,7 +3,6 @@ package restore
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 )
 
@@ -48,23 +47,6 @@ func RunPartitionSubcommand(args []string) error {
 	return partitionAndFormatDirect(rawDiskPath, firmwarePartSize, sectorSize, volumeLabel)
 }
 
-func CreateIPodDirStructure(mountPoint string) error {
-	dirs := []string{
-		filepath.Join(mountPoint, "iPod_Control", "Device"),
-		filepath.Join(mountPoint, "iPod_Control", "iTunes"),
-		filepath.Join(mountPoint, "iPod_Control", "Clickwheel"),
-	}
-	for i := range 20 {
-		dirs = append(dirs, filepath.Join(mountPoint, "iPod_Control", "Music", fmt.Sprintf("F%02d", i)))
-	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
-	}
-	return nil
-}
 
 func sanitizeVolumeLabel(name string) string {
 	if name == "" {

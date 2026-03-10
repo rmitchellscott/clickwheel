@@ -9,13 +9,16 @@ import (
 )
 
 const (
-	musicDirCount = 20
-	filenameLen   = 4
+	defaultMusicDirCount = 20
+	filenameLen          = 4
 )
 
-func EnsureMusicDirs(mountPoint string) error {
+func EnsureMusicDirs(mountPoint string, dirCount int) error {
+	if dirCount <= 0 {
+		dirCount = defaultMusicDirCount
+	}
 	musicDir := filepath.Join(mountPoint, "iPod_Control", "Music")
-	for i := 0; i < musicDirCount; i++ {
+	for i := 0; i < dirCount; i++ {
 		dir := filepath.Join(musicDir, subDirName(i))
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
@@ -24,8 +27,11 @@ func EnsureMusicDirs(mountPoint string) error {
 	return nil
 }
 
-func AllocateFilePath(mountPoint, ext string) string {
-	dirIndex := rand.Intn(musicDirCount)
+func AllocateFilePath(mountPoint, ext string, dirCount int) string {
+	if dirCount <= 0 {
+		dirCount = defaultMusicDirCount
+	}
+	dirIndex := rand.Intn(dirCount)
 	name := randomFilename() + ext
 	return filepath.Join(mountPoint, "iPod_Control", "Music", subDirName(dirIndex), name)
 }

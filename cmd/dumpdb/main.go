@@ -21,7 +21,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "no iPod found")
 		os.Exit(1)
 	}
-	fmt.Printf("iPod: %s at %s (gen=%s model=%s)\n", info.Name, info.MountPoint, info.Generation, info.Model)
+	fmt.Printf("iPod: %s at %s (family=%s gen=%s model=%s icon=%s)\n", info.Name, info.MountPoint, info.Family, info.Generation, info.Model, info.Icon)
 
 	dbPath := filepath.Join(info.MountPoint, "iPod_Control", "iTunes", "iTunesDB")
 	data, err := os.ReadFile(dbPath)

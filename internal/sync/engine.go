@@ -428,6 +428,8 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 	buildPlaylists(dev, plan)
 	log.Printf("[sync] built %d playlists, total %d playlists in DB", len(plan.Playlists), len(dev.DB.Playlists))
 
+	syncArtwork(dev, e.sub, onProgress)
+
 	onProgress(Progress{Phase: "cleanup", Message: "Cleaning up orphaned files..."})
 	knownPaths := make(map[string]bool)
 	for _, t := range dev.DB.Tracks {

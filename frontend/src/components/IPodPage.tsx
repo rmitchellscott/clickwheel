@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/utils'
@@ -123,6 +124,12 @@ export function IPodPage() {
     })
     return () => { unsub1(); unsub2(); unsub3() }
   }, [])
+
+  const trackMap = useMemo(() => {
+    const m = new Map<string, IPodTrack>()
+    for (const t of ipodTracks) m.set(t.id, t)
+    return m
+  }, [ipodTracks])
 
   const musicTracks = ipodTracks.filter(t => t.type === 'music')
   const audiobookTracks = ipodTracks.filter(t => t.type === 'audiobook')
@@ -283,8 +290,8 @@ export function IPodPage() {
   }
 
   const restorableFamilies = new Set(['iPod', 'iPod U2', 'iPod Photo', 'iPod Photo U2', 'iPod Mini', 'iPod Video', 'iPod Video U2', 'iPod Nano'])
-  const isRestorable = restorableFamilies.has(ipod.family) && !['1st Gen', '2nd Gen', '3rd Gen'].includes(ipod.generation)
-    && !(ipod.family === 'iPod Nano' && ipod.generation !== '1st Gen')
+  const isRestorable = !ipod.family || (restorableFamilies.has(ipod.family) && !['1st Gen', '2nd Gen', '3rd Gen'].includes(ipod.generation)
+    && !(ipod.family === 'iPod Nano' && ipod.generation !== '1st Gen'))
 
   const usedSpace = ipod.totalSpace - ipod.freeSpace
   const segments = [
@@ -382,7 +389,7 @@ export function IPodPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className={cn("flex-1", tab === 'library' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto')}>
         {tab === 'overview' && (
           <div className="p-4 space-y-6">
             <div className="grid grid-cols-[1fr_auto_1fr] gap-6">
@@ -433,7 +440,6 @@ export function IPodPage() {
         {tab === 'playlists' && (
           <div className="p-4 space-y-1">
             {ipodPlaylists.map(pl => {
-              const tracks = pl.trackIds.map(id => ipodTracks.find(t => t.id === id)).filter(Boolean) as IPodTrack[]
               const isExpanded = expandedPlaylist === pl.id
               return (
                 <div key={pl.id}>
@@ -442,22 +448,10 @@ export function IPodPage() {
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronUp className="h-3.5 w-3.5 text-muted-foreground rotate-90" />}
                     <ListMusic className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium">{pl.name}</span>
-                    <span className="text-xs text-muted-foreground ml-auto">{tracks.length} tracks</span>
+                    <span className="text-xs text-muted-foreground ml-auto">{pl.trackIds.length} tracks</span>
                   </button>
                   {isExpanded && (
-                    <div className="ml-10 border-l border-border/50 space-y-0.5 my-1 pl-3">
-                      {tracks.map((t, i) => (
-                        <div key={t.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent/30">
-                          <span className="text-xs text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
-                          <TypeIcon type={t.type} />
-                          <div className="flex-1 min-w-0">
-                            <span className="truncate text-xs font-medium">{t.title}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground shrink-0">{t.artist}</span>
-                          <span className="text-xs text-muted-foreground shrink-0 w-12 text-right tabular-nums">{formatTrackDuration(t.duration)}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <PlaylistTracks trackIds={pl.trackIds} trackMap={trackMap} />
                   )}
                 </div>
               )
@@ -472,99 +466,23 @@ export function IPodPage() {
         )}
 
         {tab === 'library' && (
-          <div>
-            {selectedTracks.size > 0 && (
-              <div className="flex items-center justify-between px-4 py-2 border-b bg-primary/5">
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setSelectedTracks(new Set())} className="text-muted-foreground hover:text-foreground">
-                    <X className="h-4 w-4" />
-                  </button>
-                  <span className="text-sm font-medium">
-                    {selectedTracks.size} item{selectedTracks.size !== 1 ? 's' : ''} selected
-                  </span>
-                  <span className="text-xs text-muted-foreground">({formatBytes(selectedSize)})</span>
-                </div>
-                <Button size="sm" className="gap-1.5" onClick={startCopyPicker}>
-                  <Download className="h-3.5 w-3.5" /> Copy to Computer
-                </Button>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-              <div className="flex items-center gap-1">
-                {(['all', 'music', 'audiobook', 'podcast'] as TrackFilter[]).map(f => (
-                  <Button key={f} variant={filter === f ? 'secondary' : 'ghost'} size="sm" className="text-xs h-7"
-                    onClick={() => setFilter(f)}>
-                    {f === 'all' ? 'All' : f === 'music' ? 'Music' : f === 'audiobook' ? 'Audiobooks' : 'Podcasts'}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 ml-auto">
-                <div className="relative w-56">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <Input placeholder="Filter tracks..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 pr-7 h-7 text-xs" />
-                  {search && (
-                    <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => {
-                  setSelectedTracks(new Set(ipodTracks.map(t => t.id)))
-                  startCopyPicker()
-                }}>
-                  <FolderDown className="h-3 w-3" /> Copy All
-                </Button>
-              </div>
-            </div>
-
-            <div className="text-xs">
-              <div className="grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b bg-muted text-muted-foreground font-medium sticky top-0">
-                <button onClick={toggleAllVisible}
-                  className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors mt-0.5',
-                    filteredTracks.length > 0 && filteredTracks.every(t => selectedTracks.has(t.id))
-                      ? 'bg-primary border-primary text-primary-foreground' : 'border-input hover:border-foreground/50')}>
-                  {filteredTracks.length > 0 && filteredTracks.every(t => selectedTracks.has(t.id)) && <Check className="h-3 w-3" />}
-                </button>
-                <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('title')}>Title <SortIcon column="title" /></button>
-                <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('artist')}>Artist <SortIcon column="artist" /></button>
-                <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('album')}>Album <SortIcon column="album" /></button>
-                <div>Format</div>
-                <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('playCount')}>Plays <SortIcon column="playCount" /></button>
-                <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('lastPlayed')}>Played <SortIcon column="lastPlayed" /></button>
-                <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('dateAdded')}>Added <SortIcon column="dateAdded" /></button>
-                <div className="text-right">Duration</div>
-              </div>
-
-              {filteredTracks.map(t => (
-                <div key={t.id} onClick={() => toggleTrack(t.id)}
-                  className={cn(
-                    "grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b border-border/50 hover:bg-accent/30 transition-colors items-center cursor-pointer",
-                    selectedTracks.has(t.id) && "bg-primary/5"
-                  )}>
-                  <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
-                    selectedTracks.has(t.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
-                    {selectedTracks.has(t.id) && <Check className="h-3 w-3" />}
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <TypeIcon type={t.type} />
-                    <span className="truncate">{t.title}</span>
-                  </div>
-                  <span className="truncate text-muted-foreground">{t.artist}</span>
-                  <span className="truncate text-muted-foreground">{t.album}</span>
-                  <span className="uppercase text-muted-foreground">{t.format}</span>
-                  <span className="text-right tabular-nums">{t.playCount}</span>
-                  <TimeAgo ts={t.lastPlayed} className="text-right text-muted-foreground" />
-                  <TimeAgo ts={t.dateAdded} className="text-right text-muted-foreground" />
-                  <span className="text-right text-muted-foreground tabular-nums">{formatTrackDuration(t.duration)}</span>
-                </div>
-              ))}
-
-              <div className="px-4 py-2 text-muted-foreground border-b">
-                {filteredTracks.length} item{filteredTracks.length !== 1 ? 's' : ''} &middot; {totalPlayCount} total plays
-              </div>
-            </div>
-          </div>
+          <LibraryTab
+            filteredTracks={filteredTracks}
+            ipodTracks={ipodTracks}
+            selectedTracks={selectedTracks}
+            setSelectedTracks={setSelectedTracks}
+            toggleTrack={toggleTrack}
+            toggleAllVisible={toggleAllVisible}
+            filter={filter}
+            setFilter={setFilter}
+            search={search}
+            setSearch={setSearch}
+            handleSort={handleSort}
+            SortIcon={SortIcon}
+            selectedSize={selectedSize}
+            totalPlayCount={totalPlayCount}
+            startCopyPicker={startCopyPicker}
+          />
         )}
       </div>
 
@@ -644,4 +562,158 @@ function TypeIcon({ type }: { type: string }) {
     case 'podcast': return <Podcast className="h-3 w-3 text-orange-500 shrink-0" />
     default: return null
   }
+}
+
+function PlaylistTracks({ trackIds, trackMap }: { trackIds: string[], trackMap: Map<string, IPodTrack> }) {
+  const tracks = useMemo(() =>
+    trackIds.map(id => trackMap.get(id)).filter(Boolean) as IPodTrack[],
+    [trackIds, trackMap]
+  )
+  return (
+    <div className="ml-10 border-l border-border/50 space-y-0.5 my-1 pl-3">
+      {tracks.map((t, i) => (
+        <div key={t.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-accent/30">
+          <span className="text-xs text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
+          <TypeIcon type={t.type} />
+          <div className="flex-1 min-w-0">
+            <span className="truncate text-xs font-medium">{t.title}</span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">{t.artist}</span>
+          <span className="text-xs text-muted-foreground shrink-0 w-12 text-right tabular-nums">{formatTrackDuration(t.duration)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const ROW_HEIGHT = 30
+
+function LibraryTab({ filteredTracks, ipodTracks, selectedTracks, setSelectedTracks, toggleTrack, toggleAllVisible, filter, setFilter, search, setSearch, handleSort, SortIcon, selectedSize, totalPlayCount, startCopyPicker }: {
+  filteredTracks: IPodTrack[]
+  ipodTracks: IPodTrack[]
+  selectedTracks: Set<string>
+  setSelectedTracks: (s: Set<string>) => void
+  toggleTrack: (id: string) => void
+  toggleAllVisible: () => void
+  filter: TrackFilter
+  setFilter: (f: TrackFilter) => void
+  search: string
+  setSearch: (s: string) => void
+  handleSort: (key: SortKey) => void
+  SortIcon: React.ComponentType<{ column: SortKey }>
+  selectedSize: number
+  totalPlayCount: number
+  startCopyPicker: () => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const allSelected = filteredTracks.length > 0 && filteredTracks.every(t => selectedTracks.has(t.id))
+
+  const virtualizer = useVirtualizer({
+    count: filteredTracks.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 30,
+  })
+
+  return (
+    <>
+      {selectedTracks.size > 0 && (
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-primary/5">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedTracks(new Set())} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-medium">
+              {selectedTracks.size} item{selectedTracks.size !== 1 ? 's' : ''} selected
+            </span>
+            <span className="text-xs text-muted-foreground">({formatBytes(selectedSize)})</span>
+          </div>
+          <Button size="sm" className="gap-1.5" onClick={startCopyPicker}>
+            <Download className="h-3.5 w-3.5" /> Copy to Computer
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+        <div className="flex items-center gap-1">
+          {(['all', 'music', 'audiobook', 'podcast'] as TrackFilter[]).map(f => (
+            <Button key={f} variant={filter === f ? 'secondary' : 'ghost'} size="sm" className="text-xs h-7"
+              onClick={() => setFilter(f)}>
+              {f === 'all' ? 'All' : f === 'music' ? 'Music' : f === 'audiobook' ? 'Audiobooks' : 'Podcasts'}
+            </Button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="relative w-56">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input placeholder="Filter tracks..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 pr-7 h-7 text-xs" />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => {
+            setSelectedTracks(new Set(ipodTracks.map(t => t.id)))
+            startCopyPicker()
+          }}>
+            <FolderDown className="h-3 w-3" /> Copy All
+          </Button>
+        </div>
+      </div>
+
+      <div className="text-xs flex flex-col flex-1 min-h-0">
+        <div className="grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 py-1.5 border-b bg-muted text-muted-foreground font-medium shrink-0">
+          <button onClick={toggleAllVisible}
+            className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors mt-0.5',
+              allSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-input hover:border-foreground/50')}>
+            {allSelected && <Check className="h-3 w-3" />}
+          </button>
+          <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('title')}>Title <SortIcon column="title" /></button>
+          <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('artist')}>Artist <SortIcon column="artist" /></button>
+          <button className="flex items-center gap-1 hover:text-foreground" onClick={() => handleSort('album')}>Album <SortIcon column="album" /></button>
+          <div>Format</div>
+          <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('playCount')}>Plays <SortIcon column="playCount" /></button>
+          <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('lastPlayed')}>Played <SortIcon column="lastPlayed" /></button>
+          <button className="flex items-center gap-1 justify-end hover:text-foreground" onClick={() => handleSort('dateAdded')}>Added <SortIcon column="dateAdded" /></button>
+          <div className="text-right">Duration</div>
+        </div>
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            {virtualizer.getVirtualItems().map(virtualRow => {
+              const t = filteredTracks[virtualRow.index]
+              return (
+                <div key={t.id} onClick={() => toggleTrack(t.id)}
+                  style={{ position: 'absolute', top: virtualRow.start, height: ROW_HEIGHT, left: 0, right: 0 }}
+                  className={cn(
+                    "grid grid-cols-[28px_1fr_1fr_1fr_48px_64px_72px_80px_80px] gap-2 px-4 items-center border-b border-border/50 hover:bg-accent/30 transition-colors cursor-pointer",
+                    selectedTracks.has(t.id) && "bg-primary/5"
+                  )}>
+                  <div className={cn('h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors',
+                    selectedTracks.has(t.id) ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
+                    {selectedTracks.has(t.id) && <Check className="h-3 w-3" />}
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TypeIcon type={t.type} />
+                    <span className="truncate">{t.title}</span>
+                  </div>
+                  <span className="truncate text-muted-foreground">{t.artist}</span>
+                  <span className="truncate text-muted-foreground">{t.album}</span>
+                  <span className="uppercase text-muted-foreground">{t.format}</span>
+                  <span className="text-right tabular-nums">{t.playCount}</span>
+                  <TimeAgo ts={t.lastPlayed} className="text-right text-muted-foreground" />
+                  <TimeAgo ts={t.dateAdded} className="text-right text-muted-foreground" />
+                  <span className="text-right text-muted-foreground tabular-nums">{formatTrackDuration(t.duration)}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="px-4 py-2 text-muted-foreground border-b">
+            {filteredTracks.length} item{filteredTracks.length !== 1 ? 's' : ''} &middot; {totalPlayCount} total plays
+          </div>
+        </div>
+      </div>
+    </>
+  )
 }

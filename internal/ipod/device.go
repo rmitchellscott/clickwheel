@@ -41,13 +41,30 @@ func OpenDevice(info *DeviceInfo) (*Device, error) {
 	return &Device{Info: info, DB: db}, nil
 }
 
+func (d *Device) Capabilities() *itunesdb.DeviceCapabilities {
+	caps := itunesdb.CapabilitiesForFamilyGen(d.Info.Family, d.Info.Generation)
+	if caps == nil {
+		caps = itunesdb.DefaultCapabilities()
+	}
+	copied := *caps
+	if copied.FirewireID == "" {
+		if d.Info.FirewireGUID != "" {
+			copied.FirewireID = d.Info.FirewireGUID
+		} else if d.Info.SerialNumber != "" {
+			copied.FirewireID = d.Info.SerialNumber
+		}
+	}
+	return &copied
+}
+
 func (d *Device) Save() error {
 	itunesDir := filepath.Join(d.Info.MountPoint, "iPod_Control", "iTunes")
 	if err := os.MkdirAll(itunesDir, 0755); err != nil {
 		return err
 	}
 
-	data := d.DB.Serialize()
+	caps := d.Capabilities()
+	data := itunesdb.SerializeDatabase(d.DB, caps)
 	if err := os.WriteFile(filepath.Join(itunesDir, "iTunesDB"), data, 0644); err != nil {
 		return err
 	}

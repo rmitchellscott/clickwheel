@@ -13,6 +13,7 @@ import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSC
 import { useSyncEvents } from '@/hooks/useSyncEvents'
 import { useRestoreEvents } from '@/hooks/useRestoreEvents'
 import { RestoreDialog } from '@/components/RestoreDialog'
+import { SysInfoRepairDialog } from '@/components/SysInfoRepairDialog'
 
 function App() {
   const { page, setIPod, setSubsonicConfigured, setSubsonicConnected, setAbsConfigured, setAbsConnected, setPlaylists, setAlbums, setArtists, setBooks, setPodcasts } = useAppStore()
@@ -108,6 +109,9 @@ function App() {
     DetectIPod().then(info => {
       if (info) {
         setIPod(info)
+        if (info.needsSysInfoRepair) {
+          useAppStore.getState().setSysInfoRepairOpen(true)
+        }
       } else {
         DetectUSBIPods().then(ipods => {
           if (ipods && ipods.length > 0 && ipods[0].model) {
@@ -127,6 +131,9 @@ function App() {
         const current = useAppStore.getState().ipod
         if (info && !current) {
           setIPod(info)
+          if (info.needsSysInfoRepair) {
+            useAppStore.getState().setSysInfoRepairOpen(true)
+          }
           GetActiveDeviceID().then(id => {
             if (id) useAppStore.getState().setActiveDeviceId(id)
           }).catch(() => {})
@@ -178,6 +185,7 @@ function App() {
         </main>
         <SettingsDialog />
         <RestoreDialog />
+        <SysInfoRepairDialog />
       </div>
     </TooltipProvider>
   )

@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -147,6 +145,14 @@ func (a *App) DetectIPod() (*ipod.DeviceInfo, error) {
 		return nil, nil
 	}
 
+	if pending := restore.ReadPendingDeviceName(info.MountPoint); pending != "" {
+		log.Printf("[detect] found pending device name: %q at %s", pending, info.MountPoint)
+		info.Name = pending
+		a.applyPendingName(info, pending)
+		restore.ClearPendingDeviceName(info.MountPoint)
+		log.Printf("[detect] applied pending name and cleaned up")
+	}
+
 	deviceID, err := config.ResolveDeviceID(info.MountPoint, info.SerialNumber)
 	if err != nil {
 		return nil, err
@@ -203,6 +209,46 @@ func (a *App) GetActiveDeviceID() string {
 		return ""
 	}
 	return a.device.DeviceID
+}
+
+func (a *App) ForgetDevice(deviceID string) error {
+	if a.cancelSync != nil {
+		return fmt.Errorf("cannot forget device while sync is in progress")
+	}
+
+	if info, err := ipod.Detect(); err == nil && info != nil {
+		if did, err := config.ResolveDeviceID(info.MountPoint, info.SerialNumber); err == nil && did == deviceID {
+			return fmt.Errorf("cannot forget a currently connected device — eject it first")
+		}
+	}
+
+	a.host.RemoveKnownDevice(deviceID)
+
+	if dir, err := config.DeviceBackupDir(deviceID); err == nil {
+		_ = os.RemoveAll(dir)
+	}
+
+	if a.host.LastDeviceID == deviceID {
+		if len(a.host.KnownDevices) > 0 {
+			a.host.LastDeviceID = a.host.KnownDevices[0].DeviceID
+		} else {
+			a.host.LastDeviceID = ""
+		}
+	}
+
+	if a.device != nil && a.device.DeviceID == deviceID {
+		if a.host.LastDeviceID != "" {
+			if devCfg, err := config.LoadDeviceFromBackup(a.host.LastDeviceID); err == nil {
+				a.device = devCfg
+			} else {
+				a.device = nil
+			}
+		} else {
+			a.device = nil
+		}
+	}
+
+	return a.host.Save()
 }
 
 func (a *App) SwitchDevice(deviceID string) error {
@@ -454,7 +500,7 @@ func (a *App) GetIPodPlaylists() ([]IPodPlaylistInfo, error) {
 		if pl.IsMaster {
 			continue
 		}
-		var trackIDs []string
+		trackIDs := make([]string, 0, len(pl.Tracks))
 		for _, t := range pl.Tracks {
 			trackIDs = append(trackIDs, fmt.Sprintf("ipod-%d", t.UniqueID))
 		}
@@ -540,26 +586,26 @@ func (a *App) CopyTracksToComputer(trackIDs []string, destDir string) error {
 
 	total := len(tracks)
 	go func() {
-		for i, t := range tracks {
-			srcPath := ipod.FromiPodPath(info.MountPoint, t.Path)
-
-			ext := filepath.Ext(srcPath)
-			artist := sanitizeFilename(t.Artist)
-			title := sanitizeFilename(t.Title)
-			destName := fmt.Sprintf("%s - %s%s", artist, title, ext)
-			destPath := filepath.Join(destDir, destName)
-
-			runtime.EventsEmit(a.ctx, "copy:progress", map[string]interface{}{
-				"current":     i,
-				"total":       total,
-				"currentFile": t.Title,
-			})
-
-			if err := copyFile(srcPath, destPath); err != nil {
-				runtime.EventsEmit(a.ctx, "copy:error", err.Error())
-				return
-			}
+		_, err := ipod.ExportTracks(ipod.ExportOptions{
+			Tracks:         tracks,
+			Playlists:      dev.DB.Playlists,
+			MountPoint:     info.MountPoint,
+			DestDir:        destDir,
+			EmbedArtwork:   true,
+			ExportPlaylist: true,
+			OnProgress: func(current, total int, title string) {
+				runtime.EventsEmit(a.ctx, "copy:progress", map[string]interface{}{
+					"current":     current,
+					"total":       total,
+					"currentFile": title,
+				})
+			},
+		})
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "copy:error", err.Error())
+			return
 		}
+
 		runtime.EventsEmit(a.ctx, "copy:progress", map[string]interface{}{
 			"current":     total,
 			"total":       total,
@@ -645,24 +691,10 @@ func (a *App) GetRecommendedFirmware() []restore.FirmwareMatch {
 	return nil
 }
 
-func (a *App) CheckFullDiskAccess() bool {
-	usbIPods, _ := restore.DetectUSBIPods()
-	if len(usbIPods) > 0 && usbIPods[0].DiskPath != "" {
-		log.Printf("[FDA] checking USB iPod disk: %s", usbIPods[0].DiskPath)
-		return restore.CheckFullDiskAccess(usbIPods[0].DiskPath)
-	}
-	info, _ := ipod.Detect()
-	if info != nil {
-		if raw, err := restore.RawDiskPath(info.MountPoint); err == nil {
-			log.Printf("[FDA] checking mounted iPod disk: %s", raw)
-			return restore.CheckFullDiskAccess(raw)
-		}
-	}
-	log.Printf("[FDA] no iPod found to check")
-	return false
-}
 
-func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string) error {
+func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string, password string) error {
+	restore.SetPassword(password)
+
 	catalog := restore.GetCatalog()
 	if ipswIndex < 0 || ipswIndex >= len(catalog) {
 		return fmt.Errorf("invalid firmware index")
@@ -676,9 +708,6 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string)
 
 	if info != nil {
 		model = restore.ModelByFamilyGeneration(info.Family, info.Generation)
-		if model == nil {
-			return fmt.Errorf("unsupported iPod model: %s %s", info.Family, info.Generation)
-		}
 		if rd, err := restore.RawDiskPath(info.MountPoint); err == nil {
 			rawDisk = rd
 		}
@@ -694,6 +723,10 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string)
 		}
 	}
 
+	if model == nil {
+		model = restore.ModelForFirmwareIndex(ipswIndex)
+	}
+
 	if rawDiskPath != "" {
 		rawDisk = rawDiskPath
 	}
@@ -703,7 +736,7 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string)
 	}
 
 	if model == nil {
-		return fmt.Errorf("could not determine iPod model")
+		return fmt.Errorf("could not determine iPod model for selected firmware")
 	}
 
 	ctx, cancel := context.WithCancel(a.ctx)
@@ -717,6 +750,7 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string)
 	}
 
 	go func() {
+		defer restore.ClearPassword()
 		defer func() { a.cancelRestore = nil }()
 		err := engine.Run(ctx)
 		if err != nil {
@@ -731,6 +765,20 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string)
 			a.device.DeviceName = deviceName
 			_ = a.saveDevice()
 		}
+		if deviceName != "" {
+			log.Printf("[restore] mounting data partition for name write: %s", rawDisk)
+			if err := restore.MountDataPartition(rawDisk); err != nil {
+				log.Printf("[restore] mount failed: %v", err)
+			} else {
+				mp, err := restore.FindMountPoint(rawDisk)
+				if err != nil {
+					log.Printf("[restore] find mount point failed: %v", err)
+				} else {
+					log.Printf("[restore] writing device name %q to %s", deviceName, mp)
+					restore.WriteDeviceName(mp, deviceName)
+				}
+			}
+		}
 		runtime.EventsEmit(a.ctx, "restore:done", nil)
 	}()
 	return nil
@@ -740,6 +788,39 @@ func (a *App) CancelRestore() {
 	if a.cancelRestore != nil {
 		a.cancelRestore()
 	}
+}
+
+func (a *App) applyPendingName(info *ipod.DeviceInfo, name string) {
+	dev, err := ipod.OpenDevice(info)
+	if err != nil {
+		return
+	}
+	for _, pl := range dev.DB.Playlists {
+		if pl.IsMaster {
+			pl.Name = name
+			break
+		}
+	}
+	_ = dev.Save()
+	_ = restore.RenameVolume(info.MountPoint, name)
+}
+
+func (a *App) ApproveSysInfoRepair(proposedSysInfo string) error {
+	info, err := ipod.Detect()
+	if err != nil || info == nil {
+		return fmt.Errorf("no iPod connected")
+	}
+
+	sysInfoPath := fmt.Sprintf("%s/iPod_Control/Device/SysInfo", info.MountPoint)
+	if err := os.MkdirAll(fmt.Sprintf("%s/iPod_Control/Device", info.MountPoint), 0755); err != nil {
+		return fmt.Errorf("create Device dir: %w", err)
+	}
+	if err := os.WriteFile(sysInfoPath, []byte(proposedSysInfo), 0644); err != nil {
+		return fmt.Errorf("write SysInfo: %w", err)
+	}
+
+	log.Printf("[detect] SysInfo repaired at %s", sysInfoPath)
+	return nil
 }
 
 func (a *App) RenameIPod(name string) error {
@@ -780,24 +861,3 @@ func (a *App) RenameIPod(name string) error {
 	return nil
 }
 
-func sanitizeFilename(s string) string {
-	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
-	return replacer.Replace(s)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
-}
