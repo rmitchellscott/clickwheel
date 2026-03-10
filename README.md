@@ -21,7 +21,7 @@ A desktop app for syncing music and audiobooks to classic iPods from self-hosted
 
 ## Credits
 
-The hard work of reverse-engineering the itunedb binary format, model detection, etc has been ported to Go from [iOpenPod](https://github.com/XWBarton/iopenpod-plex).
+The hard work of reverse-engineering the itunedb binary format, model detection, etc was done by [iOpenPod](https://github.com/XWBarton/iopenpod-plex) and ported to Go.
 
 ## Build
 
