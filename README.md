@@ -12,11 +12,25 @@ A desktop app for syncing music and audiobooks to classic iPods from self-hosted
 - Restores iPods directly using Apple firmware, formatting as Windows
 - Per-device sync configuration
 - Config is stored on both the host and the iPod, reconciled on connect
+- Browse the iPod's library and download music and playlists to your computer
+
+## Screenshot
+
+  <picture>
+    <source
+      srcset="assets/screenshot-dark.png"
+      media="(prefers-color-scheme: dark)"
+    >
+    <img
+      src="assets/screenshot-light.png"
+      alt="Clickwheel Screenshot"
+    >
+  </picture>
 
 ## Requirements
 
-- macOS (other platforms are partially implemented but untested)
-- A 4th generation monochrome iPod
+- macOS (other platforms are implemented but untested)
+- A clickwheel iPod
 - A Subsonic-compatible server and/or Audiobookshelf instance
 
 ## Credits
