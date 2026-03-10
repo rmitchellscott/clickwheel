@@ -19,6 +19,10 @@ A desktop app for syncing music and audiobooks to classic iPods from self-hosted
 - A 4th generation monochrome iPod
 - A Subsonic-compatible server and/or Audiobookshelf instance
 
+## Credits
+
+The hard work of reverse-engineering the itunedb binary format, model detection, etc has been ported to Go from [iOpenPod](https://github.com/XWBarton/iopenpod-plex).
+
 ## Build
 
 ```sh

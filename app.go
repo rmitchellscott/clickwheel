@@ -15,6 +15,7 @@ import (
 	"clickwheel/internal/ipod"
 	"clickwheel/internal/ipod/itunesdb"
 	"clickwheel/internal/restore"
+	"clickwheel/internal/secrets"
 	"clickwheel/internal/subsonic"
 	"clickwheel/internal/sync"
 )
@@ -23,6 +24,7 @@ type App struct {
 	ctx            context.Context
 	host           *config.HostConfig
 	device         *config.DeviceConfig
+	secrets        *secrets.Store
 	subClient      *subsonic.Client
 	absClient      *audiobookshelf.Client
 	cancelSync     context.CancelFunc
@@ -40,6 +42,14 @@ func (a *App) startup(ctx context.Context) {
 		host = config.DefaultHost()
 	}
 	a.host = host
+
+	a.secrets = secrets.NewStore()
+	if pw, err := a.secrets.Get("subsonic-password"); err == nil {
+		a.host.Subsonic.Password = pw
+	}
+	if tok, err := a.secrets.Get("abs-token"); err == nil {
+		a.host.ABS.Token = tok
+	}
 
 	if a.host.LastDeviceID != "" {
 		if devCfg, err := config.LoadDeviceFromBackup(a.host.LastDeviceID); err == nil {
@@ -59,6 +69,14 @@ type MergedConfig struct {
 	ABS          config.ABSConfig      `json:"abs"`
 	SyncSettings config.SyncSettings   `json:"syncSettings"`
 	Inclusions   config.Inclusions     `json:"inclusions"`
+}
+
+func (a *App) HasSubsonicPassword() bool {
+	return a.host.Subsonic.Password != ""
+}
+
+func (a *App) HasABSToken() bool {
+	return a.host.ABS.Token != ""
 }
 
 func (a *App) GetConfig() *MergedConfig {
@@ -92,8 +110,13 @@ func (a *App) GetTimezone() string {
 func (a *App) SaveSubsonicConfig(serverURL, username, password string) error {
 	a.host.Subsonic.ServerURL = serverURL
 	a.host.Subsonic.Username = username
-	a.host.Subsonic.Password = password
-	a.subClient = subsonic.NewClient(serverURL, username, password)
+	if password != "" && password != "••••••••" {
+		a.host.Subsonic.Password = password
+		if err := a.secrets.Set("subsonic-password", password); err != nil {
+			return fmt.Errorf("save password to keychain: %w", err)
+		}
+	}
+	a.subClient = subsonic.NewClient(serverURL, username, a.host.Subsonic.Password)
 	if err := a.host.Save(); err != nil {
 		return err
 	}
@@ -106,8 +129,13 @@ func (a *App) SaveSubsonicConfig(serverURL, username, password string) error {
 
 func (a *App) SaveABSConfig(serverURL, token string) error {
 	a.host.ABS.ServerURL = serverURL
-	a.host.ABS.Token = token
-	a.absClient = audiobookshelf.NewClient(serverURL, token)
+	if token != "" && token != "••••••••" {
+		a.host.ABS.Token = token
+		if err := a.secrets.Set("abs-token", token); err != nil {
+			return fmt.Errorf("save token to keychain: %w", err)
+		}
+	}
+	a.absClient = audiobookshelf.NewClient(serverURL, a.host.ABS.Token)
 	if err := a.host.Save(); err != nil {
 		return err
 	}

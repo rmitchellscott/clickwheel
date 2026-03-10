@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { applyTheme, type Theme } from '@/main'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { GetConfig, SaveSubsonicConfig, TestSubsonicConnection, SaveABSConfig, TestABSConnection, GetSyncSettings, SaveSyncSettings } from '../../wailsjs/go/main/App'
+import { GetConfig, SaveSubsonicConfig, TestSubsonicConnection, SaveABSConfig, TestABSConnection, GetSyncSettings, SaveSyncSettings, HasSubsonicPassword, HasABSToken } from '../../wailsjs/go/main/App'
 import type { SyncSettings } from '@/store/appStore'
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -100,9 +100,9 @@ export function SettingsDialog() {
     GetConfig().then(cfg => {
       if (cfg.subsonic?.serverUrl) setNavURL(cfg.subsonic.serverUrl)
       if (cfg.subsonic?.username) setNavUser(cfg.subsonic.username)
-      if (cfg.subsonic?.password) setNavPass(cfg.subsonic.password)
       if (cfg.abs?.serverUrl) setAbsURL(cfg.abs.serverUrl)
-      if (cfg.abs?.token) setAbsToken(cfg.abs.token)
+      HasSubsonicPassword().then(has => { if (has) setNavPass('••••••••') })
+      HasABSToken().then(has => { if (has) setAbsToken('••••••••') })
     })
     GetSyncSettings().then(s => {
       setSyncPlayCounts(s.syncPlayCounts)
@@ -243,7 +243,7 @@ export function SettingsDialog() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Password</label>
-                      <Input placeholder="Password" type="password" value={navPass} onChange={e => setNavPass(e.target.value)} />
+                      <Input placeholder="Password" type="password" value={navPass} onChange={e => setNavPass(e.target.value)} onFocus={() => { if (navPass === '••••••••') setNavPass('') }} />
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={testNav} disabled={navTesting}>
@@ -269,7 +269,7 @@ export function SettingsDialog() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">API Token</label>
-                      <Input placeholder="API Token" type="password" value={absToken} onChange={e => setAbsToken(e.target.value)} />
+                      <Input placeholder="API Token" type="password" value={absToken} onChange={e => setAbsToken(e.target.value)} onFocus={() => { if (absToken === '••••••••') setAbsToken('') }} />
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={testAbs} disabled={absTesting}>

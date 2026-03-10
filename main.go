@@ -40,7 +40,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "clickwheel",
+		Title:     "Clickwheel",
 		Width:     1050,
 		Height:    700,
 		MinWidth:  800,

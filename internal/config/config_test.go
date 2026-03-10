@@ -83,8 +83,59 @@ func TestHostConfigSaveLoad(t *testing.T) {
 	if loaded.Subsonic.ServerURL != "https://music.example.com" {
 		t.Errorf("ServerURL: got %s", loaded.Subsonic.ServerURL)
 	}
-	if loaded.ABS.Token != "tok123" {
-		t.Errorf("Token: got %s", loaded.ABS.Token)
+}
+
+func TestHostConfigSecretsExcludedFromJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "host.json")
+
+	cfg := &HostConfig{
+		Subsonic: SubsonicConfig{
+			ServerURL: "https://music.example.com",
+			Username:  "user",
+			Password:  "supersecret",
+		},
+		ABS: ABSConfig{
+			ServerURL: "https://abs.example.com",
+			Token:     "tok123",
+		},
+	}
+	cfg.path = path
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	raw := string(data)
+
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	sub := m["subsonic"].(map[string]interface{})
+	if _, ok := sub["password"]; ok {
+		t.Errorf("password should not appear in JSON, got: %s", raw)
+	}
+
+	abs := m["abs"].(map[string]interface{})
+	if _, ok := abs["token"]; ok {
+		t.Errorf("token should not appear in JSON, got: %s", raw)
+	}
+
+	if sub["serverUrl"] != "https://music.example.com" {
+		t.Errorf("serverUrl missing from serialized JSON")
+	}
+	if sub["username"] != "user" {
+		t.Errorf("username missing from serialized JSON")
+	}
+	if abs["serverUrl"] != "https://abs.example.com" {
+		t.Errorf("abs serverUrl missing from serialized JSON")
 	}
 }
 

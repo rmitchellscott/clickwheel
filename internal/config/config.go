@@ -10,12 +10,12 @@ import (
 type SubsonicConfig struct {
 	ServerURL string `json:"serverUrl"`
 	Username  string `json:"username"`
-	Password  string `json:"password"`
+	Password  string `json:"-"`
 }
 
 type ABSConfig struct {
 	ServerURL string `json:"serverUrl"`
-	Token     string `json:"token"`
+	Token     string `json:"-"`
 }
 
 type TrackSyncState struct {

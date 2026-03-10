@@ -7,14 +7,17 @@ require (
 	github.com/diskfs/go-diskfs v1.7.0
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/wailsapp/wails/v2 v2.11.0
+	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/image v0.36.0
 	golang.org/x/sys v0.41.0
 	howett.net/plist v1.0.1
 )
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	github.com/anchore/go-lzo v0.1.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20230602022725-51bbb787efab // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Check, Podcast, X, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
+import { GetABSLibraries, GetABSPodcasts, SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
 
 type SortKey = 'title' | 'author' | 'episodes' | 'size'
 type SortDir = 'asc' | 'desc'
@@ -26,24 +26,45 @@ function SortHeader({ label, active, dir, onClick, className }: {
 
 export function PodcastsPage() {
   const {
-    absConfigured, setSettingsOpen,
-    podcasts, searchQuery, setSearchQuery,
+    absConfigured, absConnected, setSettingsOpen,
+    podcasts, setPodcasts, searchQuery, setSearchQuery,
     includedPodcasts, togglePodcast, toggleAllPodcasts,
   } = useAppStore()
 
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
-  const [initialized, setInitialized] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    if (podcasts.length > 0 && includedPodcasts.size > 0) {
-      setInitialized(true)
+    if (absConnected && !loaded) {
+      GetABSLibraries().then(libs => {
+        if (!libs) return
+        const podLibs = libs.filter(l => l.mediaType === 'podcast')
+        if (podLibs.length === 0) return
+        GetABSPodcasts(podLibs[0].id).then(pods => {
+          const podList = (pods || []).map(p => ({
+            id: p.id,
+            title: p.media?.metadata?.title || 'Unknown',
+            author: p.media?.metadata?.author || 'Unknown',
+            episodeCount: p.media?.episodes?.length || 0,
+            size: p.media?.size || 0,
+          }))
+          setPodcasts(podList)
+          setLoaded(true)
+
+          GetInclusions().then(inc => {
+            useAppStore.setState({
+              includedPodcasts: new Set(inc?.podcasts || []),
+            })
+          })
+        })
+      })
     }
-  }, [podcasts, includedPodcasts])
+  }, [absConnected, loaded])
 
   useEffect(() => {
-    if (!initialized || podcasts.length === 0) return
+    if (!absConnected || podcasts.length === 0) return
     const state = useAppStore.getState()
     GetInclusions().then(inc => {
       SetInclusions({
@@ -54,7 +75,7 @@ export function PodcastsPage() {
         podcasts: [...state.includedPodcasts],
       })
     })
-  }, [includedPodcasts, initialized])
+  }, [includedPodcasts])
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
