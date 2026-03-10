@@ -8,6 +8,11 @@ package vpd
 #include <CoreFoundation/CoreFoundation.h>
 #include <stdlib.h>
 #include <string.h>
+#include <Availability.h>
+
+#if !defined(__MAC_12_0) || __MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_12_0
+#define kIOMainPortDefault kIOMasterPortDefault
+#endif
 
 typedef struct {
 	IOCFPlugInInterface **plugIn;
