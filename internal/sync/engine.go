@@ -421,14 +421,18 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 
 	log.Printf("[sync] plan: add=%d remove=%d playlists=%d", len(plan.AddTracks)+len(plan.AddBooks)+len(plan.AddPodcasts), len(plan.RemoveTracks)+len(plan.RemoveBooks)+len(plan.RemovePodcasts), len(plan.Playlists))
 
-	if err := e.executePlan(ctx, dev, plan, onProgress); err != nil {
-		return fmt.Errorf("executing sync plan: %w", err)
+	execErr := e.executePlan(ctx, dev, plan, onProgress)
+
+	if execErr != nil {
+		log.Printf("[sync] transfer interrupted: %v — saving progress", execErr)
 	}
 
 	buildPlaylists(dev, plan)
 	log.Printf("[sync] built %d playlists, total %d playlists in DB", len(plan.Playlists), len(dev.DB.Playlists))
 
-	syncArtwork(dev, e.sub, onProgress)
+	if execErr == nil {
+		syncArtwork(dev, e.sub, onProgress)
+	}
 
 	onProgress(Progress{Phase: "cleanup", Message: "Cleaning up orphaned files..."})
 	knownPaths := make(map[string]bool)
@@ -446,6 +450,10 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 
 	if err := e.device.SaveBoth(dev.Info.MountPoint); err != nil {
 		return fmt.Errorf("saving device config: %w", err)
+	}
+
+	if execErr != nil {
+		return fmt.Errorf("sync incomplete (progress saved): %w", execErr)
 	}
 
 	onProgress(Progress{Phase: "done", Message: "Sync complete!", Percent: 100})
@@ -683,6 +691,8 @@ func (e *Engine) buildPlan(ctx context.Context, dev *ipod.Device, onProgress Pro
 	return BuildPlan(ctx, e.device, e.sub, e.abs, dev)
 }
 
+const checkpointInterval = 50
+
 func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPlan, onProgress ProgressFunc) error {
 	allRemovals := append(append(plan.RemoveTracks, plan.RemoveBooks...), plan.RemovePodcasts...)
 	removedBaseBooks := make(map[string]bool)
@@ -729,6 +739,17 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 
 	format := e.device.SyncSettings.MusicFormat
 	bitRate := e.device.SyncSettings.MusicBitRate
+
+	sinceCheckpoint := 0
+	checkpoint := func() {
+		if sinceCheckpoint >= checkpointInterval {
+			log.Printf("[sync] checkpoint: saving iTunesDB (%d tracks)", len(dev.DB.Tracks))
+			if err := dev.Save(); err != nil {
+				log.Printf("[sync] checkpoint save failed: %v", err)
+			}
+			sinceCheckpoint = 0
+		}
+	}
 
 	if len(plan.AddTracks) > 0 {
 		workers := runtime.NumCPU()
@@ -788,6 +809,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			}
 			tracker.record(item.Size, time.Since(lastDone))
 			lastDone = time.Now()
+			sinceCheckpoint++
+			checkpoint()
 		}
 	}
 
@@ -828,6 +851,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			}
 		}
 		tracker.record(bookSizeEst, time.Since(itemStart))
+		sinceCheckpoint++
+		checkpoint()
 	}
 
 	for i, item := range plan.AddPodcasts {
@@ -860,6 +885,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 			return err
 		}
 		tracker.record(item.Size, time.Since(itemStart))
+		sinceCheckpoint++
+		checkpoint()
 	}
 
 	if rate := tracker.finalRate(); rate > 0 {
