@@ -1,6 +1,9 @@
 package restore
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 const appleVID = 0x05AC
 
@@ -15,8 +18,8 @@ const (
 type IPodModel struct {
 	Name             string
 	DiskPID          uint16
-	DFUPID           uint16
-	WTFPID           uint16
+	DFUPIDs          []uint16
+	WTFPIDs          []uint16
 	FirmwarePartSize int64
 	SectorSize       int
 	Family           string
@@ -60,30 +63,44 @@ var ipodModels = []IPodModel{
 		Family: "iPod Nano", Generation: "1st Gen", Restorable: true,
 	},
 
-	// Samsung/S5L — not supported for restore (requires DFU flashing)
+	// Samsung/S5L — most require DFU flashing; Classic is disk-mode restorable
+	// (its ~89MB Apple OS lives on the HDD firmware partition, not NOR flash)
 	{
-		Name: "iPod Nano 2nd Gen", DiskPID: 0x1260, DFUPID: 0x1220, WTFPID: 0x1240,
+		Name: "iPod Nano 2nd Gen", DiskPID: 0x1260,
+		DFUPIDs: []uint16{0x1220}, WTFPIDs: []uint16{0x1240},
 		Family: "iPod Nano", Generation: "2nd Gen",
 	},
 	{
 		Name: "iPod Classic", DiskPID: 0x1261,
-		Family: "iPod Classic", Generation: "1st Gen",
+		DFUPIDs: []uint16{0x1223},
+		WTFPIDs: []uint16{0x1241, 0x1245, 0x1247, 0x1250},
+		FirmwarePartSize: 128 * 1024 * 1024, SectorSize: 512,
+		Family: "iPod Classic", Generation: "1st Gen", Restorable: true,
 	},
 	{
-		Name: "iPod Classic (DFU)", DiskPID: 0x1262, DFUPID: 0x1223, WTFPID: 0x1241,
-		Family: "iPod Classic", Generation: "1st Gen",
-	},
-	{
-		Name: "iPod Nano 3rd Gen", DiskPID: 0x1262, DFUPID: 0x1223, WTFPID: 0x1242,
+		Name: "iPod Nano 3rd Gen", DiskPID: 0x1262,
+		DFUPIDs: []uint16{0x1223, 0x1224}, WTFPIDs: []uint16{0x1242},
 		Family: "iPod Nano", Generation: "3rd Gen",
 	},
 	{
-		Name: "iPod Nano 4th Gen", DiskPID: 0x1265, DFUPID: 0x1225, WTFPID: 0x1243,
+		Name: "iPod Nano 4th Gen", DiskPID: 0x1263,
+		DFUPIDs: []uint16{0x1225}, WTFPIDs: []uint16{0x1243},
 		Family: "iPod Nano", Generation: "4th Gen",
 	},
 	{
-		Name: "iPod Nano 5th Gen", DiskPID: 0x1267, DFUPID: 0x1231, WTFPID: 0x1246,
+		Name: "iPod Nano 5th Gen", DiskPID: 0x1265,
+		DFUPIDs: []uint16{0x1231}, WTFPIDs: []uint16{0x1246},
 		Family: "iPod Nano", Generation: "5th Gen",
+	},
+	{
+		Name: "iPod Nano 6th Gen", DiskPID: 0x1266,
+		DFUPIDs: []uint16{0x1232}, WTFPIDs: []uint16{0x1248},
+		Family: "iPod Nano", Generation: "6th Gen",
+	},
+	{
+		Name: "iPod Nano 7th Gen", DiskPID: 0x1267,
+		DFUPIDs: []uint16{0x1234}, WTFPIDs: []uint16{0x1249, 0x124a},
+		Family: "iPod Nano", Generation: "7th Gen",
 	},
 }
 
@@ -98,10 +115,10 @@ func ModelByPID(pid uint16) (*IPodModel, DeviceMode) {
 		if ipodModels[i].DiskPID == pid {
 			return &ipodModels[i], ModeDisk
 		}
-		if ipodModels[i].DFUPID != 0 && ipodModels[i].DFUPID == pid {
+		if slices.Contains(ipodModels[i].DFUPIDs, pid) {
 			return &ipodModels[i], ModeDFU
 		}
-		if ipodModels[i].WTFPID != 0 && ipodModels[i].WTFPID == pid {
+		if slices.Contains(ipodModels[i].WTFPIDs, pid) {
 			return &ipodModels[i], ModeWTF
 		}
 	}
