@@ -29,6 +29,7 @@ type App struct {
 	absClient      *audiobookshelf.Client
 	cancelSync     context.CancelFunc
 	cancelRestore  context.CancelFunc
+	connectedIPods []*ipod.DeviceInfo
 }
 
 func NewApp() *App {
@@ -164,65 +165,156 @@ func (a *App) TestABSConnection() error {
 	return a.absClient.Ping()
 }
 
-func (a *App) DetectIPod() (*ipod.DeviceInfo, error) {
-	info, err := ipod.Detect()
-	if err != nil {
-		return nil, err
-	}
-	if info == nil {
-		return nil, nil
-	}
-
-	if pending := restore.ReadPendingDeviceName(info.MountPoint); pending != "" {
-		log.Printf("[detect] found pending device name: %q at %s", pending, info.MountPoint)
-		info.Name = pending
-		a.applyPendingName(info, pending)
-		restore.ClearPendingDeviceName(info.MountPoint)
-		log.Printf("[detect] applied pending name and cleaned up")
-	}
-
-	deviceID, err := config.ResolveDeviceID(info.MountPoint, info.SerialNumber)
+func (a *App) DetectIPods() ([]*ipod.DeviceInfo, error) {
+	all, err := ipod.DetectAll()
 	if err != nil {
 		return nil, err
 	}
 
-	devCfg, err := config.LoadDeviceConfig(info.MountPoint, deviceID)
-	if err != nil {
-		return nil, err
+	for _, info := range all {
+		if pending := restore.ReadPendingDeviceName(info.MountPoint); pending != "" {
+			log.Printf("[detect] found pending device name: %q at %s", pending, info.MountPoint)
+			info.Name = pending
+			a.applyPendingName(info, pending)
+			restore.ClearPendingDeviceName(info.MountPoint)
+		}
+
+		serial := info.SerialNumber
+		if serial == "" {
+			serial = info.FirewireGUID
+		}
+		log.Printf("[detect] resolving device ID for %s: serial=%q fwGuid=%q resolved=%q", info.MountPoint, info.SerialNumber, info.FirewireGUID, serial)
+		deviceID, err := config.ResolveDeviceID(info.MountPoint, serial)
+		if err != nil {
+			log.Printf("[detect] failed to resolve device ID for %s: %v", info.MountPoint, err)
+			continue
+		}
+		info.DeviceID = deviceID
+
+		devCfg, err := config.LoadDeviceConfig(info.MountPoint, deviceID)
+		if err != nil {
+			log.Printf("[detect] failed to load device config for %s: %v", deviceID, err)
+			devCfg = config.DefaultDevice(deviceID)
+		}
+		devCfg.Servers.SubsonicURL = a.host.Subsonic.ServerURL
+		devCfg.Servers.ABSURL = a.host.ABS.ServerURL
+
+		a.host.UpdateKnownDevice(config.KnownDevice{
+			DeviceID:   deviceID,
+			Name:       info.Name,
+			Family:     info.Family,
+			Generation: info.Generation,
+			Capacity:   info.Capacity,
+			Color:      info.Color,
+			Model:      info.Model,
+			Icon:       info.Icon,
+		})
+
+		if a.device == nil || a.device.DeviceID == deviceID {
+			a.device = devCfg
+			a.host.LastDeviceID = deviceID
+		}
 	}
 
-	devCfg.Servers.SubsonicURL = a.host.Subsonic.ServerURL
-	devCfg.Servers.ABSURL = a.host.ABS.ServerURL
-	a.device = devCfg
+	a.connectedIPods = all
 
-	a.host.LastDeviceID = deviceID
-	a.host.UpdateKnownDevice(config.KnownDevice{
-		DeviceID:   deviceID,
-		Name:       info.Name,
-		Family:     info.Family,
-		Generation: info.Generation,
-		Capacity:   info.Capacity,
-		Color:      info.Color,
-		Model:      info.Model,
-		Icon:       info.Icon,
-	})
+	if len(all) == 1 {
+		a.device, _ = config.LoadDeviceConfig(all[0].MountPoint, all[0].DeviceID)
+		if a.device != nil {
+			a.device.Servers.SubsonicURL = a.host.Subsonic.ServerURL
+			a.device.Servers.ABSURL = a.host.ABS.ServerURL
+		}
+		a.host.LastDeviceID = all[0].DeviceID
+	}
+
 	_ = a.host.Save()
+	return all, nil
+}
 
-	return info, nil
+func (a *App) DetectIPod() (*ipod.DeviceInfo, error) {
+	all, err := a.DetectIPods()
+	if err != nil {
+		return nil, err
+	}
+	return a.activeIPodInfo(all), nil
+}
+
+func (a *App) SetActiveIPod(deviceID string) error {
+	log.Printf("[SetActiveIPod] called with deviceID=%q, %d connected iPods", deviceID, len(a.connectedIPods))
+	for i, info := range a.connectedIPods {
+		log.Printf("[SetActiveIPod] connectedIPods[%d]: DeviceID=%q Name=%q Mount=%q", i, info.DeviceID, info.Name, info.MountPoint)
+	}
+	if a.cancelSync != nil {
+		return fmt.Errorf("cannot switch devices while sync is in progress")
+	}
+	for _, info := range a.connectedIPods {
+		if info.DeviceID == deviceID {
+			log.Printf("[SetActiveIPod] matched device %q at %s", info.Name, info.MountPoint)
+			devCfg, err := config.LoadDeviceConfig(info.MountPoint, deviceID)
+			if err != nil {
+				log.Printf("[SetActiveIPod] LoadDeviceConfig error: %v", err)
+				return err
+			}
+			devCfg.Servers.SubsonicURL = a.host.Subsonic.ServerURL
+			devCfg.Servers.ABSURL = a.host.ABS.ServerURL
+			a.device = devCfg
+			a.host.LastDeviceID = deviceID
+			_ = a.host.Save()
+			log.Printf("[SetActiveIPod] switched to %q", deviceID)
+			return nil
+		}
+	}
+	log.Printf("[SetActiveIPod] no match found for %q", deviceID)
+	return fmt.Errorf("device %s is not currently connected", deviceID)
+}
+
+func (a *App) activeIPodInfo(list []*ipod.DeviceInfo) *ipod.DeviceInfo {
+	if list == nil {
+		list = a.connectedIPods
+	}
+	if a.device == nil {
+		if len(list) > 0 {
+			return list[0]
+		}
+		return nil
+	}
+	for _, info := range list {
+		if info.DeviceID == a.device.DeviceID {
+			return info
+		}
+	}
+	if len(list) > 0 {
+		return list[0]
+	}
+	return nil
 }
 
 func (a *App) EjectIPod() error {
-	info, err := ipod.Detect()
-	if err != nil {
-		return err
-	}
+	info := a.activeIPodInfo(nil)
 	if info == nil {
 		return fmt.Errorf("no iPod connected")
 	}
 	if a.device != nil {
 		_ = a.saveDevice()
 	}
-	return ipod.Eject(info.MountPoint)
+	mountPoint := info.MountPoint
+	err := ipod.Eject(mountPoint)
+	if err != nil {
+		return err
+	}
+
+	var remaining []*ipod.DeviceInfo
+	for _, di := range a.connectedIPods {
+		if di.MountPoint != mountPoint {
+			remaining = append(remaining, di)
+		}
+	}
+	a.connectedIPods = remaining
+
+	if len(remaining) > 0 {
+		_ = a.SetActiveIPod(remaining[0].DeviceID)
+	}
+	return nil
 }
 
 func (a *App) GetKnownDevices() []config.KnownDevice {
@@ -244,8 +336,8 @@ func (a *App) ForgetDevice(deviceID string) error {
 		return fmt.Errorf("cannot forget device while sync is in progress")
 	}
 
-	if info, err := ipod.Detect(); err == nil && info != nil {
-		if did, err := config.ResolveDeviceID(info.MountPoint, info.SerialNumber); err == nil && did == deviceID {
+	for _, info := range a.connectedIPods {
+		if info.DeviceID == deviceID {
 			return fmt.Errorf("cannot forget a currently connected device — eject it first")
 		}
 	}
@@ -372,8 +464,8 @@ func (a *App) saveDevice() error {
 	if a.device == nil {
 		return nil
 	}
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
+	info := a.activeIPodInfo(nil)
+	if info == nil {
 		bp, err := config.DeviceBackupPath(a.device.DeviceID)
 		if err != nil {
 			return err
@@ -386,7 +478,11 @@ func (a *App) saveDevice() error {
 }
 
 func (a *App) newSyncEngine() *sync.Engine {
-	return sync.NewEngine(a.host, a.device, a.subClient, a.absClient)
+	mountPoint := ""
+	if info := a.activeIPodInfo(nil); info != nil {
+		mountPoint = info.MountPoint
+	}
+	return sync.NewEngine(a.host, a.device, a.subClient, a.absClient, mountPoint)
 }
 
 func (a *App) PreviewSync() (*sync.PlanSummary, error) {
@@ -464,9 +560,9 @@ func mediaTypeString(mt uint32) string {
 }
 
 func (a *App) GetIPodTracks() ([]IPodTrackInfo, error) {
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
-		return nil, err
+	info := a.activeIPodInfo(nil)
+	if info == nil {
+		return nil, nil
 	}
 
 	dev, err := ipod.OpenDevice(info)
@@ -513,9 +609,9 @@ func (a *App) GetIPodTracks() ([]IPodTrackInfo, error) {
 }
 
 func (a *App) GetIPodPlaylists() ([]IPodPlaylistInfo, error) {
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
-		return nil, err
+	info := a.activeIPodInfo(nil)
+	if info == nil {
+		return nil, nil
 	}
 
 	dev, err := ipod.OpenDevice(info)
@@ -542,9 +638,9 @@ func (a *App) GetIPodPlaylists() ([]IPodPlaylistInfo, error) {
 }
 
 func (a *App) GetIPodStorage() (*StorageBreakdown, error) {
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
-		return nil, err
+	info := a.activeIPodInfo(nil)
+	if info == nil {
+		return nil, nil
 	}
 
 	dev, err := ipod.OpenDevice(info)
@@ -586,8 +682,8 @@ func (a *App) BrowseDirectory() (string, error) {
 }
 
 func (a *App) CopyTracksToComputer(trackIDs []string, destDir string) error {
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
+	info := a.activeIPodInfo(nil)
+	if info == nil {
 		return fmt.Errorf("no iPod found")
 	}
 
@@ -701,7 +797,7 @@ func (a *App) GetIPSWCatalog() []restore.IPSWEntry {
 }
 
 func (a *App) GetRecommendedFirmware() []restore.FirmwareMatch {
-	info, _ := ipod.Detect()
+	info := a.activeIPodInfo(nil)
 	if info != nil {
 		matches := restore.MatchFirmware(info.Family, info.Generation, info.Model)
 		log.Printf("[restore] MatchFirmware (mounted): %d matches for %s %s", len(matches), info.Family, info.Generation)
@@ -729,7 +825,7 @@ func (a *App) StartRestore(ipswIndex int, deviceName string, rawDiskPath string,
 	}
 	entry := catalog[ipswIndex]
 
-	info, _ := ipod.Detect()
+	info := a.activeIPodInfo(nil)
 
 	var model *restore.IPodModel
 	var rawDisk string
@@ -834,8 +930,8 @@ func (a *App) applyPendingName(info *ipod.DeviceInfo, name string) {
 }
 
 func (a *App) ApproveSysInfoRepair(proposedSysInfo string) error {
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
+	info := a.activeIPodInfo(nil)
+	if info == nil {
 		return fmt.Errorf("no iPod connected")
 	}
 
@@ -856,8 +952,8 @@ func (a *App) RenameIPod(name string) error {
 		return fmt.Errorf("name cannot be empty")
 	}
 
-	info, err := ipod.Detect()
-	if err != nil || info == nil {
+	info := a.activeIPodInfo(nil)
+	if info == nil {
 		return fmt.Errorf("no iPod connected")
 	}
 

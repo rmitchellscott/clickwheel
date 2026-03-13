@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 export interface IPodInfo {
+  deviceId: string
   mountPoint: string
   name: string
   freeSpace: number
@@ -156,6 +157,9 @@ interface AppState {
   page: Page
   setPage: (page: Page) => void
 
+  connectedIPods: IPodInfo[]
+  setConnectedIPods: (ipods: IPodInfo[]) => void
+
   ipod: IPodInfo | null
   setIPod: (ipod: IPodInfo | null) => void
 
@@ -255,6 +259,9 @@ function toggleInSet(set: Set<string>, id: string): Set<string> {
 export const useAppStore = create<AppState>((set) => ({
   page: 'library',
   setPage: (page) => set({ page, searchQuery: '' }),
+
+  connectedIPods: [],
+  setConnectedIPods: (connectedIPods) => set({ connectedIPods }),
 
   ipod: null,
   setIPod: (ipod) => set({ ipod }),
@@ -361,3 +368,15 @@ export const useAppStore = create<AppState>((set) => ({
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   setTimezone: (timezone) => set({ timezone }),
 }))
+
+export function useActiveIPod(): IPodInfo | null {
+  return useAppStore(state => {
+    const { connectedIPods, activeDeviceId } = state
+    if (connectedIPods.length === 0) return state.ipod
+    if (activeDeviceId) {
+      const match = connectedIPods.find(d => d.deviceId === activeDeviceId)
+      if (match) return match
+    }
+    return connectedIPods[0] ?? state.ipod
+  })
+}

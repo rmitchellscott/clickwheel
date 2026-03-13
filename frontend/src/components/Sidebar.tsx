@@ -16,7 +16,7 @@ function EjectIcon({ className }: { className?: string }) {
   )
 }
 import { useState } from 'react'
-import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection, SwitchDevice, ForgetDevice, GetKnownDevices, GetActiveDeviceID, GetInclusions } from '../../wailsjs/go/main/App'
+import { DetectIPod, EjectIPod, TestSubsonicConnection, TestABSConnection, SwitchDevice, ForgetDevice, GetKnownDevices, GetActiveDeviceID, GetInclusions, SetActiveIPod } from '../../wailsjs/go/main/App'
 
 const navItems = [
   { id: 'library' as const, label: 'Music', icon: Music },
@@ -34,6 +34,7 @@ export function Sidebar() {
     syncPlan,
     activeDeviceId, knownDevices,
     usbDevice,
+    connectedIPods,
   } = useAppStore()
 
   const [scanningIPod, setScanningIPod] = useState(false)
@@ -104,6 +105,36 @@ export function Sidebar() {
     setSwitcherOpen(false)
   }
 
+  const switchActiveIPod = async (deviceId: string) => {
+    console.log('[switchActiveIPod] called with deviceId:', JSON.stringify(deviceId))
+    console.log('[switchActiveIPod] connectedIPods:', JSON.stringify(connectedIPods.map(d => ({ deviceId: d.deviceId, name: d.name, mount: d.mountPoint }))))
+    console.log('[switchActiveIPod] current activeDeviceId:', activeDeviceId)
+    try {
+      await SetActiveIPod(deviceId)
+      console.log('[switchActiveIPod] SetActiveIPod succeeded')
+      const [id, devices] = await Promise.all([GetActiveDeviceID(), GetKnownDevices()])
+      console.log('[switchActiveIPod] new activeDeviceId:', id)
+      if (id) useAppStore.getState().setActiveDeviceId(id)
+      if (devices) useAppStore.getState().setKnownDevices(devices)
+      const info = connectedIPods.find(d => d.deviceId === deviceId)
+      console.log('[switchActiveIPod] found matching info:', info ? info.name : 'NOT FOUND')
+      if (info) setIPod(info)
+      GetInclusions().then(inc => {
+        if (!inc) return
+        useAppStore.setState({
+          includedPlaylists: new Set(inc.playlists || []),
+          includedAlbums: new Set(inc.albums || []),
+          includedArtists: new Set(inc.artists || []),
+          includedBooks: new Set(inc.books || []),
+          includedPodcasts: new Set(inc.podcasts || []),
+        })
+      }).catch(() => {})
+    } catch (err) {
+      console.error('[switchActiveIPod] error:', err)
+    }
+    setSwitcherOpen(false)
+  }
+
   const forgetDevice = async (deviceId: string) => {
     try {
       await ForgetDevice(deviceId)
@@ -153,69 +184,96 @@ export function Sidebar() {
   return (
     <aside className="w-56 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col h-full shrink-0">
       {ipod && (
-        <button
-          onClick={() => setPage('ipod')}
-          className={cn(
-            'mx-3 mt-3 mb-3 p-3 rounded-lg text-left transition-colors',
-            page === 'ipod'
-              ? 'bg-sidebar-accent ring-1 ring-sidebar-accent-foreground/20'
-              : 'bg-sidebar-accent hover:ring-1 hover:ring-sidebar-accent-foreground/10'
-          )}
-        >
-          <div className="flex items-center gap-2.5 mb-2">
-            <IPodIcon size={36} icon={ipod.icon} className="shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center min-w-0">
-                <span className="text-sm font-medium text-sidebar-accent-foreground truncate min-w-0">{ipod.name}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      onClick={ejectIPod}
-                      disabled={ejecting || syncing}
-                      className="shrink-0 ml-auto h-6 w-6 p-0 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 hover:bg-sidebar-border/50"
-                    >
-                      {ejecting
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <EjectIcon className="h-3.5 w-3.5" />
-                      }
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {syncing ? 'Cannot eject during sync' : 'Eject iPod'}
-                  </TooltipContent>
-                </Tooltip>
+        <div className={cn(
+          'mx-3 mt-3 mb-3 rounded-lg text-left transition-colors',
+          page === 'ipod'
+            ? 'bg-sidebar-accent ring-1 ring-sidebar-accent-foreground/20'
+            : 'bg-sidebar-accent hover:ring-1 hover:ring-sidebar-accent-foreground/10'
+        )}>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setPage('ipod')}
+            onKeyDown={(e) => e.key === 'Enter' && setPage('ipod')}
+            className="p-3 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5 mb-2">
+              <IPodIcon size={36} icon={ipod.icon} className="shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center min-w-0">
+                  <span className="text-sm font-medium text-sidebar-accent-foreground truncate min-w-0">{ipod.name}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        onClick={ejectIPod}
+                        disabled={ejecting || syncing}
+                        className="shrink-0 ml-auto h-6 w-6 p-0 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 hover:bg-sidebar-border/50"
+                      >
+                        {ejecting
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <EjectIcon className="h-3.5 w-3.5" />
+                        }
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {syncing ? 'Cannot eject during sync' : 'Eject iPod'}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="text-[11px] text-sidebar-foreground/60">{[ipod.family, ipod.generation].filter(Boolean).join(' \u00B7 ')}</div>
+                {ipod.displayCapacity && <div className="text-[11px] text-sidebar-foreground/60">{ipod.displayCapacity}</div>}
               </div>
-              <div className="text-[11px] text-sidebar-foreground/60">{[ipod.family, ipod.generation].filter(Boolean).join(' \u00B7 ')}</div>
-              {ipod.displayCapacity && <div className="text-[11px] text-sidebar-foreground/60">{ipod.displayCapacity}</div>}
+            </div>
+            <div className="relative h-1.5 rounded-full bg-sidebar-border overflow-hidden">
+              {estimatedNew > 0 && (
+                <div
+                  className={cn(
+                    "absolute inset-y-0 left-0 rounded-full transition-all",
+                    willFit ? "bg-blue-400" : "bg-destructive/60"
+                  )}
+                  style={{ width: `${projectedPercent}%` }}
+                />
+              )}
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-sidebar-accent-foreground/60 transition-all"
+                style={{ width: `${usedPercent}%` }}
+              />
+            </div>
+            <div className="flex justify-between items-center mt-1.5">
+              <span className="text-[11px] text-sidebar-foreground/70">{formatBytes(usedSpace)} used</span>
+              {estimatedNew > 0 ? (
+                <span className={cn("text-[11px]", willFit ? "text-sidebar-foreground/70" : "text-destructive")}>
+                  {willFit ? `${formatBytes(projectedFree)} free after` : "Won't fit"}
+                </span>
+              ) : (
+                <span className="text-[11px] text-sidebar-foreground/70">{formatBytes(ipod.freeSpace)} free</span>
+              )}
             </div>
           </div>
-          <div className="relative h-1.5 rounded-full bg-sidebar-border overflow-hidden">
-            {estimatedNew > 0 && (
-              <div
-                className={cn(
-                  "absolute inset-y-0 left-0 rounded-full transition-all",
-                  willFit ? "bg-blue-400" : "bg-destructive/60"
-                )}
-                style={{ width: `${projectedPercent}%` }}
-              />
-            )}
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-sidebar-accent-foreground/60 transition-all"
-              style={{ width: `${usedPercent}%` }}
-            />
-          </div>
-          <div className="flex justify-between items-center mt-1.5">
-            <span className="text-[11px] text-sidebar-foreground/70">{formatBytes(usedSpace)} used</span>
-            {estimatedNew > 0 ? (
-              <span className={cn("text-[11px]", willFit ? "text-sidebar-foreground/70" : "text-destructive")}>
-                {willFit ? `${formatBytes(projectedFree)} free after` : "Won't fit"}
-              </span>
-            ) : (
-              <span className="text-[11px] text-sidebar-foreground/70">{formatBytes(ipod.freeSpace)} free</span>
-            )}
-          </div>
-        </button>
+          {connectedIPods.length > 1 && (
+            <div className="px-3 pb-2 pt-1 border-t border-sidebar-border/30 space-y-0.5">
+              <div className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider mb-1">Connected iPods</div>
+              {connectedIPods.map(d => (
+                <div
+                  key={d.mountPoint}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => switchActiveIPod(d.deviceId)}
+                  onKeyDown={(e) => e.key === 'Enter' && switchActiveIPod(d.deviceId)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-1.5 py-1 rounded text-xs text-left cursor-pointer hover:bg-sidebar-border/50 transition-colors',
+                    d.deviceId === activeDeviceId && 'bg-sidebar-border/50 font-medium'
+                  )}
+                >
+                  <IPodIcon size={16} icon={d.icon} className="shrink-0" />
+                  <span className="truncate">{d.name || 'iPod'}</span>
+                  <Circle className="h-1.5 w-1.5 fill-blue-400 text-blue-400 ml-auto shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {!ipod && usbDevice && (

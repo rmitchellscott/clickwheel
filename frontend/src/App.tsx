@@ -9,7 +9,7 @@ import { SyncPage } from '@/components/SyncPage'
 import { SyncProgressCard } from '@/components/SyncProgressCard'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPod, DetectUSBIPods, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts, GetActiveDeviceID, GetKnownDevices } from '../wailsjs/go/main/App'
+import { GetConfig, GetInclusions, GetTimezone, TestSubsonicConnection, TestABSConnection, DetectIPods, DetectUSBIPods, GetSubsonicPlaylists, GetSubsonicAlbums, GetSubsonicArtists, GetABSLibraries, GetABSBooks, GetABSPodcasts, GetActiveDeviceID, GetKnownDevices } from '../wailsjs/go/main/App'
 import { useSyncEvents } from '@/hooks/useSyncEvents'
 import { useRestoreEvents } from '@/hooks/useRestoreEvents'
 import { RestoreDialog } from '@/components/RestoreDialog'
@@ -106,7 +106,10 @@ function App() {
       if (tz) useAppStore.getState().setTimezone(tz)
     }).catch(() => {})
 
-    DetectIPod().then(info => {
+    DetectIPods().then(all => {
+      const list = all || []
+      useAppStore.getState().setConnectedIPods(list)
+      const info = list.length > 0 ? list[0] : null
       if (info) {
         setIPod(info)
         if (info.needsSysInfoRepair) {
@@ -127,11 +130,21 @@ function App() {
     const interval = setInterval(async () => {
       if (useAppStore.getState().syncing || useAppStore.getState().restoring) return
       try {
-        const info = await DetectIPod()
+        const all = await DetectIPods()
+        const list = all || []
+        const prevMounts = new Set(useAppStore.getState().connectedIPods.map(d => d.mountPoint))
+        const newMounts = new Set(list.map(d => d.mountPoint))
+        const changed = prevMounts.size !== newMounts.size || [...prevMounts].some(m => !newMounts.has(m))
+
+        useAppStore.getState().setConnectedIPods(list)
+
+        const activeId = useAppStore.getState().activeDeviceId
+        const activeInfo = list.find(d => d.deviceId === activeId) ?? list[0] ?? null
         const current = useAppStore.getState().ipod
-        if (info && !current) {
-          setIPod(info)
-          if (info.needsSysInfoRepair) {
+
+        if (activeInfo && !current) {
+          setIPod(activeInfo)
+          if (activeInfo.needsSysInfoRepair) {
             useAppStore.getState().setSysInfoRepairOpen(true)
           }
           GetActiveDeviceID().then(id => {
@@ -150,10 +163,19 @@ function App() {
               includedPodcasts: new Set(inc.podcasts || []),
             })
           }).catch(() => {})
-        } else if (!info && current) {
+        } else if (!activeInfo && current) {
           setIPod(null)
+        } else if (changed && activeInfo) {
+          setIPod(activeInfo)
+          GetActiveDeviceID().then(id => {
+            if (id) useAppStore.getState().setActiveDeviceId(id)
+          }).catch(() => {})
+          GetKnownDevices().then(devices => {
+            if (devices) useAppStore.getState().setKnownDevices(devices)
+          }).catch(() => {})
         }
-        if (!info) {
+
+        if (list.length === 0) {
           const ipods = await DetectUSBIPods().catch(() => null)
           if (ipods && ipods.length > 0 && ipods[0].model) {
             const dev = { model: ipods[0].model!.Name, generation: ipods[0].model!.Family + ' ' + ipods[0].model!.Generation, productId: 0, mode: ipods[0].mode, restorable: ipods[0].model!.Restorable ?? false, diskPath: ipods[0].diskPath || '' }

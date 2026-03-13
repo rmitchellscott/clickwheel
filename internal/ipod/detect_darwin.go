@@ -7,12 +7,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func Detect() (*DeviceInfo, error) {
+func DetectAll() ([]*DeviceInfo, error) {
 	entries, err := os.ReadDir("/Volumes")
 	if err != nil {
 		return nil, err
 	}
 
+	var devices []*DeviceInfo
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -20,11 +21,15 @@ func Detect() (*DeviceInfo, error) {
 		mount := filepath.Join("/Volumes", entry.Name())
 		controlDir := filepath.Join(mount, "iPod_Control")
 		if _, err := os.Stat(controlDir); err == nil {
-			return deviceInfoFromMount(mount, entry.Name())
+			di, err := deviceInfoFromMount(mount, entry.Name())
+			if err != nil {
+				continue
+			}
+			devices = append(devices, di)
 		}
 	}
 
-	return nil, nil
+	return devices, nil
 }
 
 func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {

@@ -95,6 +95,14 @@ export function IPodPage() {
   const [copyProgress, setCopyProgress] = useState({ current: 0, total: 0, currentFile: '' })
   const [loaded, setLoaded] = useState(false)
 
+  const ipodDeviceId = ipod?.deviceId
+
+  useEffect(() => {
+    setLoaded(false)
+    setIPodTracks([])
+    setIPodPlaylists([])
+  }, [ipodDeviceId])
+
   useEffect(() => {
     if (!ipod) {
       setLoaded(false)

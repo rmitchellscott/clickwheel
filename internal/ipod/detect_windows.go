@@ -9,15 +9,20 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func Detect() (*DeviceInfo, error) {
+func DetectAll() ([]*DeviceInfo, error) {
+	var devices []*DeviceInfo
 	for letter := 'D'; letter <= 'Z'; letter++ {
 		mount := fmt.Sprintf("%c:\\", letter)
 		controlDir := filepath.Join(mount, "iPod_Control")
 		if _, err := os.Stat(controlDir); err == nil {
-			return deviceInfoFromMount(mount, fmt.Sprintf("iPod (%c:)", letter))
+			di, err := deviceInfoFromMount(mount, fmt.Sprintf("iPod (%c:)", letter))
+			if err != nil {
+				continue
+			}
+			devices = append(devices, di)
 		}
 	}
-	return nil, nil
+	return devices, nil
 }
 
 func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {

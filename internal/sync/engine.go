@@ -115,14 +115,15 @@ func (t *etaTracker) finalRate() float64 {
 type ProgressFunc func(Progress)
 
 type Engine struct {
-	host   *config.HostConfig
-	device *config.DeviceConfig
-	sub    *subsonic.Client
-	abs    *audiobookshelf.Client
+	host       *config.HostConfig
+	device     *config.DeviceConfig
+	sub        *subsonic.Client
+	abs        *audiobookshelf.Client
+	mountPoint string
 }
 
-func NewEngine(host *config.HostConfig, device *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client) *Engine {
-	return &Engine{host: host, device: device, sub: sub, abs: abs}
+func NewEngine(host *config.HostConfig, device *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client, mountPoint string) *Engine {
+	return &Engine{host: host, device: device, sub: sub, abs: abs, mountPoint: mountPoint}
 }
 
 type PlanSummary struct {
@@ -148,12 +149,9 @@ type PlanSummaryItem struct {
 }
 
 func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
-	info, err := ipod.Detect()
+	info, err := ipod.DeviceInfoFromMount(e.mountPoint)
 	if err != nil {
 		return nil, fmt.Errorf("detecting iPod: %w", err)
-	}
-	if info == nil {
-		return nil, fmt.Errorf("no iPod found")
 	}
 
 	dev, err := ipod.OpenDevice(info)
@@ -386,12 +384,9 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 	onProgress(Progress{Phase: "detect", Message: "Detecting iPod..."})
 
-	info, err := ipod.Detect()
+	info, err := ipod.DeviceInfoFromMount(e.mountPoint)
 	if err != nil {
 		return fmt.Errorf("detecting iPod: %w", err)
-	}
-	if info == nil {
-		return fmt.Errorf("no iPod found")
 	}
 
 	dev, err := ipod.OpenDevice(info)

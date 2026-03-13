@@ -14,7 +14,28 @@ import (
 	"clickwheel/internal/ipod/vpd"
 )
 
+func Detect() (*DeviceInfo, error) {
+	all, err := DetectAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, nil
+	}
+	return all[0], nil
+}
+
+func DeviceInfoFromMount(mountPoint string) (*DeviceInfo, error) {
+	controlDir := filepath.Join(mountPoint, "iPod_Control")
+	if _, err := os.Stat(controlDir); err != nil {
+		return nil, fmt.Errorf("no iPod_Control at %s", mountPoint)
+	}
+	name := filepath.Base(mountPoint)
+	return deviceInfoFromMount(mountPoint, name)
+}
+
 type DeviceInfo struct {
+	DeviceID           string `json:"deviceId"`
 	MountPoint         string `json:"mountPoint"`
 	Name               string `json:"name"`
 	FreeSpace          int64  `json:"freeSpace"`

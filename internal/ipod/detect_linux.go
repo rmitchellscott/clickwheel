@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func Detect() (*DeviceInfo, error) {
+func DetectAll() ([]*DeviceInfo, error) {
 	u, err := user.Current()
 	if err != nil {
 		return nil, err
@@ -19,6 +19,7 @@ func Detect() (*DeviceInfo, error) {
 		filepath.Join("/run/media", u.Username),
 	}
 
+	var devices []*DeviceInfo
 	for _, dir := range searchDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -31,12 +32,16 @@ func Detect() (*DeviceInfo, error) {
 			mount := filepath.Join(dir, entry.Name())
 			controlDir := filepath.Join(mount, "iPod_Control")
 			if _, err := os.Stat(controlDir); err == nil {
-				return deviceInfoFromMount(mount, entry.Name())
+				di, err := deviceInfoFromMount(mount, entry.Name())
+				if err != nil {
+					continue
+				}
+				devices = append(devices, di)
 			}
 		}
 	}
 
-	return nil, nil
+	return devices, nil
 }
 
 func deviceInfoFromMount(mount, name string) (*DeviceInfo, error) {
