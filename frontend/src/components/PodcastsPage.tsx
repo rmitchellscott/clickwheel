@@ -47,7 +47,7 @@ export function PodcastsPage() {
             id: p.id,
             title: p.media?.metadata?.title || 'Unknown',
             author: p.media?.metadata?.author || 'Unknown',
-            episodeCount: p.media?.episodes?.length || 0,
+            episodeCount: p.media?.numEpisodes || 0,
             size: p.media?.size || 0,
           }))
           setPodcasts(podList)
