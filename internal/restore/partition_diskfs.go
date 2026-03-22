@@ -9,7 +9,7 @@ import (
 	"github.com/diskfs/go-diskfs/partition/mbr"
 )
 
-func partitionWithDiskFS(d *disk.Disk, firmwarePartSize int64, sectorSize int, volumeLabel string) error {
+func writeMBR(d *disk.Disk, firmwarePartSize int64, sectorSize int) error {
 	ss := int64(sectorSize)
 	if ss == 0 {
 		ss = 512
@@ -48,9 +48,16 @@ func partitionWithDiskFS(d *disk.Disk, firmwarePartSize int64, sectorSize int, v
 		return fmt.Errorf("write partition table: %w", err)
 	}
 	d.Table = table
+	return nil
+}
+
+func partitionWithDiskFS(d *disk.Disk, firmwarePartSize int64, sectorSize int, volumeLabel string) error {
+	if err := writeMBR(d, firmwarePartSize, sectorSize); err != nil {
+		return err
+	}
 
 	label := sanitizeVolumeLabel(volumeLabel)
-	_, err = d.CreateFilesystem(disk.FilesystemSpec{
+	_, err := d.CreateFilesystem(disk.FilesystemSpec{
 		Partition:   2,
 		FSType:      filesystem.TypeFat32,
 		VolumeLabel: label,
@@ -75,4 +82,19 @@ func openAndPartitionWithDiskFS(rawDiskPath string, firmwarePartSize int64, sect
 	defer d.Close()
 
 	return partitionWithDiskFS(d, firmwarePartSize, sectorSize, volumeLabel)
+}
+
+func openAndWriteMBR(rawDiskPath string, firmwarePartSize int64, sectorSize int) error {
+	ss := int64(sectorSize)
+	if ss == 0 {
+		ss = 512
+	}
+
+	d, err := diskfs.Open(rawDiskPath, diskfs.WithSectorSize(diskfs.SectorSize(ss)))
+	if err != nil {
+		return fmt.Errorf("open disk for partitioning: %w", err)
+	}
+	defer d.Close()
+
+	return writeMBR(d, firmwarePartSize, sectorSize)
 }

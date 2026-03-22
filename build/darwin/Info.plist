@@ -21,8 +21,6 @@
         <string>10.13.0</string>
         <key>NSHighResolutionCapable</key>
         <string>true</string>
-        <key>NSLocalNetworkUsageDescription</key>
-        <string>Clickwheel needs local network access to connect to your music server.</string>
         <key>NSHumanReadableCopyright</key>
         <string>{{.Info.Copyright}}</string>
         {{if .Info.FileAssociations}}

@@ -75,12 +75,20 @@ func alignToSector(data []byte, sectorSize int) []byte {
 func partitionAndFormatDirect(rawDiskPath string, firmwarePartSize int64, sectorSize int, volumeLabel string) error {
 	exec.Command("diskutil", "unmountDisk", "force", rawDiskPath).Run()
 
-	if err := openAndPartitionWithDiskFS(rawDiskPath, firmwarePartSize, sectorSize, volumeLabel); err != nil {
+	if err := openAndWriteMBR(rawDiskPath, firmwarePartSize, sectorSize); err != nil {
 		return err
 	}
 
 	time.Sleep(2 * time.Second)
 	exec.Command("diskutil", "unmountDisk", "force", rawDiskPath).Run()
+
+	label := sanitizeVolumeLabel(volumeLabel)
+	dataPartition := rdiskPath(rawDiskPath) + "s2"
+	out, err := exec.Command("newfs_msdos", "-F", "32", "-v", label, dataPartition).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("newfs_msdos: %s", string(out))
+	}
+
 	exec.Command("diskutil", "mount", rawDiskPath+"s2").Run()
 
 	return nil
