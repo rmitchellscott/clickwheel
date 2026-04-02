@@ -334,7 +334,7 @@ func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 		Size:              uint32(n),
 		FiletypeKey:       "m4b",
 		BitRate:           64,
-		SampleRate:        44100,
+		SampleRate:        22050,
 		MediaType:         itunesdb.MediaTypeAudiobook,
 		RememberPosition:  1,
 		SkipWhenShuffling: 1,
@@ -349,11 +349,11 @@ func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 func splitM4BPart(ctx context.Context, sourcePath string, startSec, endSec float64, workDir string, index int) (string, error) {
 	outPath := filepath.Join(workDir, fmt.Sprintf("part_%d.m4b", index))
 	args := []string{
-		"-i", sourcePath,
 		"-ss", fmt.Sprintf("%.3f", startSec),
 		"-to", fmt.Sprintf("%.3f", endSec),
-		"-c:a", "copy",
+		"-i", sourcePath,
 		"-vn",
+		"-c:a", "aac", "-b:a", "64k", "-ar", "22050", "-profile:a", "aac_low", "-aac_pns", "0", "-ac", "1",
 		"-movflags", "+faststart",
 		"-y", outPath,
 	}
@@ -364,6 +364,18 @@ func splitM4BPart(ctx context.Context, sourcePath string, startSec, endSec float
 }
 
 func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipod.Device, item BookItem, m4bPath string, onStep func(string)) error {
+	var staleIDs []string
+	for _, t := range dev.DB.Tracks {
+		if baseID, _, isSplit := splitBookSourceID(t.SourceID); isSplit && baseID == item.SourceID {
+			staleIDs = append(staleIDs, t.SourceID)
+		}
+	}
+	for _, id := range staleIDs {
+		if removed := dev.DB.RemoveTrack(id); removed != nil && removed.Path != "" {
+			os.Remove(ipod.FromiPodPath(dev.Info.MountPoint, removed.Path))
+		}
+	}
+
 	workDir, err := os.MkdirTemp("", "clickwheel-split-")
 	if err != nil {
 		return err
@@ -410,7 +422,7 @@ func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 			Size:              uint32(partSize),
 			FiletypeKey:       "m4b",
 			BitRate:           64,
-			SampleRate:        44100,
+			SampleRate:        22050,
 			MediaType:         itunesdb.MediaTypeAudiobook,
 			RememberPosition:  1,
 			SkipWhenShuffling: 1,

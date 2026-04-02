@@ -63,7 +63,7 @@ func MergeToM4B(ctx context.Context, inputFiles []string, chapters []Chapter, ou
 	}
 	args = append(args,
 		"-vn",
-		"-c:a", "aac", "-b:a", "64k", "-ar", "44100", "-profile:a", "aac_low", "-ac", "1",
+		"-c:a", "aac", "-b:a", "64k", "-ar", "22050", "-profile:a", "aac_low", "-aac_pns", "0", "-ac", "1",
 		"-movflags", "+faststart",
 		"-y", outputPath,
 	)
@@ -76,7 +76,7 @@ func transcodeSingle(ctx context.Context, input, output string) error {
 	args := []string{
 		"-i", input,
 		"-vn",
-		"-c:a", "aac", "-b:a", "64k", "-ar", "44100", "-profile:a", "aac_low", "-ac", "1",
+		"-c:a", "aac", "-b:a", "64k", "-ar", "22050", "-profile:a", "aac_low", "-aac_pns", "0", "-ac", "1",
 		"-movflags", "+faststart",
 		"-y", output,
 	}

@@ -410,21 +410,24 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 					existingSplit := cfg.SyncState.BookSplits[book.ID]
 					partsMatch := len(existingSplit.Parts) == len(splitParts) && existingSplit.SplitHoursLimit == splitLimit
 
+					needsTransfer := !partsMatch
 					for _, p := range splitParts {
 						sid := bookPartSourceID(book.ID, p.Index)
 						wantedIDs[sid] = true
-						if !existingIDs[sid] || !partsMatch {
-							plan.AddBooks = append(plan.AddBooks, BookItem{
-								SourceID:   book.ID,
-								Title:      book.Media.Metadata.Title,
-								Author:     book.Media.Metadata.Author,
-								Duration:   duration,
-								Size:       book.Size,
-								Chapters:   chapters,
-								SplitParts: splitParts,
-							})
-							break
+						if !existingIDs[sid] {
+							needsTransfer = true
 						}
+					}
+					if needsTransfer {
+						plan.AddBooks = append(plan.AddBooks, BookItem{
+							SourceID:   book.ID,
+							Title:      book.Media.Metadata.Title,
+							Author:     book.Media.Metadata.Author,
+							Duration:   duration,
+							Size:       book.Size,
+							Chapters:   chapters,
+							SplitParts: splitParts,
+						})
 					}
 				} else {
 					wantedIDs[book.ID] = true
