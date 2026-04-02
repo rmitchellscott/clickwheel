@@ -30,6 +30,7 @@ type App struct {
 	cancelSync     context.CancelFunc
 	cancelRestore  context.CancelFunc
 	connectedIPods []*ipod.DeviceInfo
+	syncEngine     *sync.Engine
 }
 
 func NewApp() *App {
@@ -486,13 +487,23 @@ func (a *App) newSyncEngine() *sync.Engine {
 }
 
 func (a *App) PreviewSync() (*sync.PlanSummary, error) {
-	return a.newSyncEngine().Preview(a.ctx)
+	e := a.newSyncEngine()
+	summary, err := e.Preview(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.syncEngine = e
+	return summary, nil
 }
 
 func (a *App) StartSync() error {
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancelSync = cancel
-	e := a.newSyncEngine()
+	e := a.syncEngine
+	if e == nil {
+		e = a.newSyncEngine()
+	}
+	a.syncEngine = nil
 	go func() {
 		defer func() { a.cancelSync = nil }()
 		err := e.Run(ctx, func(progress sync.Progress) {

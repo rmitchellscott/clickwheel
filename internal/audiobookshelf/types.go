@@ -52,6 +52,7 @@ type Chapter struct {
 
 type BooksResponse struct {
 	Results []Book `json:"results"`
+	Total   int    `json:"total"`
 }
 
 type Podcast struct {
@@ -82,11 +83,13 @@ type PodcastEpisode struct {
 
 type PodcastsResponse struct {
 	Results []Podcast `json:"results"`
+	Total   int       `json:"total"`
 }
 
 type MediaProgress struct {
 	ID            string  `json:"id"`
 	LibraryItemID string  `json:"libraryItemId"`
+	EpisodeID     string  `json:"episodeId"`
 	CurrentTime   float64 `json:"currentTime"`
 	Duration      float64 `json:"duration"`
 	Progress      float64 `json:"progress"`

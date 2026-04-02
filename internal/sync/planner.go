@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strconv"
+	stdsync "sync"
 
 	"clickwheel/internal/audiobookshelf"
 	"clickwheel/internal/config"
@@ -75,7 +76,7 @@ type SyncPlan struct {
 	Playlists      []PlaylistPlan
 }
 
-func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client, dev *ipod.Device) (*SyncPlan, error) {
+func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client, dev *ipod.Device, finishedPodcasts map[string]bool) (*SyncPlan, error) {
 	plan := &SyncPlan{}
 
 	existingIDs := make(map[string]bool)
@@ -133,6 +134,27 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 	}
 
 	if sub != nil {
+		var albumCacheMu stdsync.Mutex
+		albumCache := make(map[string]*subsonic.AlbumDetail)
+		fetchAlbum := func(id string) (*subsonic.AlbumDetail, error) {
+			albumCacheMu.Lock()
+			if cached, ok := albumCache[id]; ok {
+				albumCacheMu.Unlock()
+				return cached, nil
+			}
+			albumCacheMu.Unlock()
+			detail, err := sub.GetAlbum(id)
+			if err != nil {
+				return nil, err
+			}
+			albumCacheMu.Lock()
+			albumCache[id] = detail
+			albumCacheMu.Unlock()
+			return detail, nil
+		}
+
+		const fetchWorkers = 8
+
 		playlists, err := sub.GetPlaylists()
 		if err != nil {
 			return nil, err
@@ -162,39 +184,131 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 
 		artists, err := sub.GetArtists()
 		if err == nil {
+			var includedArtistIDs []string
 			for _, ar := range artists {
-				if !includedArtists[ar.ID] {
+				if includedArtists[ar.ID] {
+					includedArtistIDs = append(includedArtistIDs, ar.ID)
+				}
+			}
+
+			type artistResult struct {
+				detail *subsonic.ArtistDetail
+			}
+			artistResults := make([]artistResult, len(includedArtistIDs))
+
+			jobs := make(chan int, fetchWorkers)
+			var wg stdsync.WaitGroup
+			for range fetchWorkers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for i := range jobs {
+						detail, err := sub.GetArtist(includedArtistIDs[i])
+						if err == nil {
+							artistResults[i] = artistResult{detail: detail}
+						}
+					}
+				}()
+			}
+			for i := range includedArtistIDs {
+				jobs <- i
+			}
+			close(jobs)
+			wg.Wait()
+
+			var albumIDs []string
+			seen := make(map[string]bool)
+			for _, ar := range artistResults {
+				if ar.detail == nil {
 					continue
 				}
-				detail, err := sub.GetArtist(ar.ID)
-				if err != nil {
+				for _, album := range ar.detail.Album {
+					if !seen[album.ID] {
+						seen[album.ID] = true
+						albumIDs = append(albumIDs, album.ID)
+					}
+				}
+			}
+
+			albumResults := make([]*subsonic.AlbumDetail, len(albumIDs))
+			jobs2 := make(chan int, fetchWorkers)
+			var wg2 stdsync.WaitGroup
+			for range fetchWorkers {
+				wg2.Add(1)
+				go func() {
+					defer wg2.Done()
+					for i := range jobs2 {
+						detail, err := fetchAlbum(albumIDs[i])
+						if err == nil {
+							albumResults[i] = detail
+						}
+					}
+				}()
+			}
+			for i := range albumIDs {
+				jobs2 <- i
+			}
+			close(jobs2)
+			wg2.Wait()
+
+			for i, detail := range albumResults {
+				if detail == nil {
 					continue
 				}
-				for _, album := range detail.Album {
-					albumDetail, err := sub.GetAlbum(album.ID)
-					if err != nil {
-						continue
-					}
-					for _, song := range albumDetail.Song {
-						addSong(song)
-					}
+				_ = albumIDs[i]
+				for _, song := range detail.Song {
+					addSong(song)
 				}
 			}
 		}
 
-		albums, err := sub.GetAlbums(0, 500)
-		if err == nil {
-			for _, al := range albums {
-				if !includedAlbums[al.ID] {
-					continue
+		const albumPageSize = 500
+		var allAlbums []subsonic.Album
+		for offset := 0; ; offset += albumPageSize {
+			page, err := sub.GetAlbums(offset, albumPageSize)
+			if err != nil {
+				break
+			}
+			allAlbums = append(allAlbums, page...)
+			if len(page) < albumPageSize {
+				break
+			}
+		}
+
+		var includedAlbumIDs []string
+		for _, al := range allAlbums {
+			if includedAlbums[al.ID] {
+				includedAlbumIDs = append(includedAlbumIDs, al.ID)
+			}
+		}
+
+		albumBrowseResults := make([]*subsonic.AlbumDetail, len(includedAlbumIDs))
+		jobs3 := make(chan int, fetchWorkers)
+		var wg3 stdsync.WaitGroup
+		for range fetchWorkers {
+			wg3.Add(1)
+			go func() {
+				defer wg3.Done()
+				for i := range jobs3 {
+					detail, err := fetchAlbum(includedAlbumIDs[i])
+					if err == nil {
+						albumBrowseResults[i] = detail
+					}
 				}
-				albumDetail, err := sub.GetAlbum(al.ID)
-				if err != nil {
-					continue
-				}
-				for _, song := range albumDetail.Song {
-					addSong(song)
-				}
+			}()
+		}
+		for i := range includedAlbumIDs {
+			jobs3 <- i
+		}
+		close(jobs3)
+		wg3.Wait()
+
+		for _, detail := range albumBrowseResults {
+			if detail == nil {
+				continue
+			}
+			for _, song := range detail.Song {
+				addSong(song)
 			}
 		}
 	}
@@ -229,6 +343,9 @@ func BuildPlan(ctx context.Context, cfg *config.DeviceConfig, sub *subsonic.Clie
 
 					for _, ep := range detail.Media.Episodes {
 						sourceID := pod.ID + "|" + ep.ID
+						if finishedPodcasts[sourceID] {
+							continue
+						}
 						wantedIDs[sourceID] = true
 						if !existingIDs[sourceID] {
 							epNum, _ := strconv.Atoi(ep.Episode)

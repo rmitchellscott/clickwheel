@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +24,9 @@ func NewClient(serverURL, username, password string) *Client {
 		serverURL: serverURL,
 		username:  username,
 		password:  password,
-		http:      &http.Client{},
+		http: &http.Client{Transport: &http.Transport{
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		}},
 	}
 }
 

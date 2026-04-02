@@ -78,6 +78,7 @@ export function SettingsDialog() {
   const [mixToMono, setMixToMono] = useState(false)
   const [syncPodcastPosition, setSyncPodcastPosition] = useState(true)
   const [twoWayPodcastSync, setTwoWayPodcastSync] = useState(false)
+  const [removeFinishedPodcasts, setRemoveFinishedPodcasts] = useState(false)
 
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem('theme') as Theme | null
@@ -116,6 +117,7 @@ export function SettingsDialog() {
       setMixToMono(s.mixToMono ?? false)
       setSyncPodcastPosition(s.syncPodcastPosition)
       setTwoWayPodcastSync(s.twoWayPodcastSync)
+      setRemoveFinishedPodcasts(s.removeFinishedPodcasts ?? false)
       hydrated.current = true
     })
   }, [settingsOpen])
@@ -132,9 +134,10 @@ export function SettingsDialog() {
       mixToMono,
       syncPodcastPosition,
       twoWayPodcastSync,
+      removeFinishedPodcasts,
     }
     SaveSyncSettings(settings)
-  }, [syncPlayCounts, syncBookPosition, twoWayBookSync, splitBooks, splitHours, musicFormat, musicBitRate, mixToMono, syncPodcastPosition, twoWayPodcastSync])
+  }, [syncPlayCounts, syncBookPosition, twoWayBookSync, splitBooks, splitHours, musicFormat, musicBitRate, mixToMono, syncPodcastPosition, twoWayPodcastSync, removeFinishedPodcasts])
 
   useEffect(() => {
     if (!hydrated.current) return
@@ -430,6 +433,12 @@ export function SettingsDialog() {
                     description="Also push iPod listening progress back to Audiobookshelf"
                   >
                     <Toggle checked={twoWayPodcastSync} onChange={setTwoWayPodcastSync} disabled={!syncPodcastPosition} />
+                  </SettingRow>
+                  <SettingRow
+                    label="Remove finished episodes"
+                    description="Automatically remove episodes from iPod after they are marked finished on Audiobookshelf"
+                  >
+                    <Toggle checked={removeFinishedPodcasts} onChange={setRemoveFinishedPodcasts} />
                   </SettingRow>
                 </section>
               </div>

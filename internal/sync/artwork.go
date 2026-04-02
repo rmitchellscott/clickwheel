@@ -21,85 +21,96 @@ func syncArtwork(dev *ipod.Device, sub *subsonic.Client, onProgress ProgressFunc
 
 	onProgress(Progress{Phase: "artwork", Message: "Syncing album artwork..."})
 
-	type artEntry struct {
-		hash    [16]byte
-		imgData []byte
+	type coverGroup struct {
+		tracks []*itunesdb.Track
+		data   []byte
+		hash   [16]byte
 	}
-	artByHash := make(map[[16]byte]*artEntry)
-	trackArt := make(map[uint64][16]byte) // DBID → art hash
-
+	coverGroups := make(map[string]*coverGroup)
 	for _, track := range dev.DB.Tracks {
 		if track.SourceID == "" || track.MediaType != itunesdb.MediaTypeMusic {
 			continue
 		}
-
 		coverID := track.CoverArtID
 		if coverID == "" {
 			continue
 		}
+		g, ok := coverGroups[coverID]
+		if !ok {
+			g = &coverGroup{}
+			coverGroups[coverID] = g
+		}
+		g.tracks = append(g.tracks, track)
+	}
 
+	for coverID, g := range coverGroups {
 		data, err := sub.GetCoverArt(coverID, 320)
 		if err != nil {
-			log.Printf("[artwork] failed to fetch cover art for %s: %v", track.Title, err)
+			log.Printf("[artwork] failed to fetch cover art %s: %v", coverID, err)
 			continue
 		}
 		if len(data) == 0 {
 			continue
 		}
-
-		hash := md5.Sum(data)
-		if _, ok := artByHash[hash]; !ok {
-			artByHash[hash] = &artEntry{hash: hash, imgData: data}
-		}
-		trackArt[track.DBID] = hash
+		g.data = data
+		g.hash = md5.Sum(data)
 	}
 
-	if len(artByHash) == 0 {
-		return
+	type convertedArt struct {
+		formats map[int][]byte
+		srcSize int
 	}
+	artByHash := make(map[[16]byte]*convertedArt)
 
-	log.Printf("[artwork] fetched %d unique cover art images for %d tracks", len(artByHash), len(trackArt))
-
-	hashToImageID := make(map[[16]byte]uint32)
-	var images []*itunesdb.ArtworkImage
-	imageID := uint32(100)
-
-	for _, track := range dev.DB.Tracks {
-		hash, ok := trackArt[track.DBID]
-		if !ok {
+	for _, g := range coverGroups {
+		if len(g.data) == 0 {
 			continue
 		}
-
-		entry := artByHash[hash]
+		if _, done := artByHash[g.hash]; done {
+			continue
+		}
 		formats := make(map[int][]byte)
 		for _, af := range caps.CoverArtFormats {
-			rgb, err := itunesdb.ConvertArtForIPod(entry.imgData, af)
+			rgb, err := itunesdb.ConvertArtForIPod(g.data, af)
 			if err != nil {
 				log.Printf("[artwork] failed to convert art for format %d: %v", af.FormatID, err)
 				continue
 			}
 			formats[af.FormatID] = rgb
 		}
-		if len(formats) == 0 {
+		if len(formats) > 0 {
+			artByHash[g.hash] = &convertedArt{formats: formats, srcSize: len(g.data)}
+		}
+		g.data = nil
+	}
+
+	if len(artByHash) == 0 {
+		return
+	}
+
+	log.Printf("[artwork] converted %d unique cover art images", len(artByHash))
+
+	var images []*itunesdb.ArtworkImage
+	imageID := uint32(100)
+
+	for _, g := range coverGroups {
+		art, ok := artByHash[g.hash]
+		if !ok {
 			continue
 		}
-
-		img := &itunesdb.ArtworkImage{
-			ImageID:  imageID,
-			SongDBID: track.DBID,
-			Formats:  formats,
-			SrcSize:  len(entry.imgData),
+		for _, track := range g.tracks {
+			img := &itunesdb.ArtworkImage{
+				ImageID:  imageID,
+				SongDBID: track.DBID,
+				Formats:  art.formats,
+				SrcSize:  art.srcSize,
+			}
+			images = append(images, img)
+			track.MHIILink = imageID
+			track.ArtworkCount = uint16(len(art.formats))
+			track.ArtworkSize = uint32(art.srcSize)
+			imageID++
 		}
-		images = append(images, img)
-
-		if _, exists := hashToImageID[hash]; !exists {
-			hashToImageID[hash] = imageID
-		}
-
-		track.MHIILink = imageID
-		track.ArtworkCount = uint16(len(formats))
-		track.ArtworkSize = uint32(len(entry.imgData))
-		imageID++
 	}
 
 	if len(images) == 0 {

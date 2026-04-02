@@ -79,6 +79,29 @@ func (c *Client) GetBooks(libraryID string) ([]Book, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&br); err != nil {
 		return nil, err
 	}
+
+	if br.Total > 0 && len(br.Results) < br.Total {
+		all := br.Results
+		const pageSize = 100
+		for page := 1; ; page++ {
+			r, err := c.doRequest("GET", fmt.Sprintf("/api/libraries/%s/items?limit=%d&page=%d", libraryID, pageSize, page), nil)
+			if err != nil {
+				break
+			}
+			var next BooksResponse
+			if err := json.NewDecoder(r.Body).Decode(&next); err != nil {
+				r.Body.Close()
+				break
+			}
+			r.Body.Close()
+			all = append(all, next.Results...)
+			if len(all) >= br.Total || len(next.Results) < pageSize {
+				break
+			}
+		}
+		return all, nil
+	}
+
 	return br.Results, nil
 }
 
@@ -111,6 +134,29 @@ func (c *Client) GetPodcasts(libraryID string) ([]Podcast, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
 		return nil, err
 	}
+
+	if pr.Total > 0 && len(pr.Results) < pr.Total {
+		all := pr.Results
+		const pageSize = 100
+		for page := 1; ; page++ {
+			r, err := c.doRequest("GET", fmt.Sprintf("/api/libraries/%s/items?limit=%d&page=%d", libraryID, pageSize, page), nil)
+			if err != nil {
+				break
+			}
+			var next PodcastsResponse
+			if err := json.NewDecoder(r.Body).Decode(&next); err != nil {
+				r.Body.Close()
+				break
+			}
+			r.Body.Close()
+			all = append(all, next.Results...)
+			if len(all) >= pr.Total || len(next.Results) < pageSize {
+				break
+			}
+		}
+		return all, nil
+	}
+
 	return pr.Results, nil
 }
 
@@ -150,10 +196,11 @@ func (c *Client) GetEpisodeProgress(itemID, episodeID string) (*MediaProgress, e
 	return &mp, nil
 }
 
-func (c *Client) UpdateEpisodeProgress(itemID, episodeID string, currentTime, duration float64) error {
+func (c *Client) UpdateEpisodeProgress(itemID, episodeID string, currentTime, duration float64, isFinished bool) error {
 	body := map[string]any{
 		"currentTime": currentTime,
 		"duration":    duration,
+		"isFinished":  isFinished,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -219,7 +266,11 @@ func (c *Client) GetAllProgress() (map[string]MediaProgress, error) {
 
 	result := make(map[string]MediaProgress, len(me.MediaProgress))
 	for _, mp := range me.MediaProgress {
-		result[mp.LibraryItemID] = mp
+		if mp.EpisodeID != "" {
+			result[mp.LibraryItemID+"|"+mp.EpisodeID] = mp
+		} else {
+			result[mp.LibraryItemID] = mp
+		}
 	}
 	return result, nil
 }

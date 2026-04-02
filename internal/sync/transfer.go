@@ -19,6 +19,24 @@ import (
 	"clickwheel/internal/transcode"
 )
 
+func copyFile(dst, src string) (int64, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
+	n, err := io.Copy(out, in)
+	if err != nil {
+		return n, err
+	}
+	return n, out.Close()
+}
+
 var audioExts = map[string]bool{
 	".mp3": true, ".m4a": true, ".m4b": true, ".mp4": true,
 	".ogg": true, ".opus": true, ".flac": true, ".wav": true,
@@ -54,7 +72,7 @@ func formatFileType(format string) string {
 type preparedTrack struct {
 	tmpDir   string
 	dataPath string
-	data     []byte
+	dataSize int64
 	item     TrackItem
 	err      error
 }
@@ -116,14 +134,13 @@ func DownloadAndTranscode(ctx context.Context, sub *subsonic.Client, item TrackI
 		ext = "." + item.Suffix
 	}
 
-	data, err := os.ReadFile(finalPath)
+	fi, err := os.Stat(finalPath)
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		return &preparedTrack{item: item, err: err}
 	}
-	os.RemoveAll(tmpDir)
 
-	return &preparedTrack{item: item, data: data}
+	return &preparedTrack{tmpDir: tmpDir, dataPath: finalPath, dataSize: fi.Size(), item: item}
 }
 
 func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int, mono bool) error {
@@ -152,11 +169,11 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		ext = "." + item.Suffix
 		fileType = formatFileType(item.Suffix)
 		if item.Duration > 0 {
-			trackBitRate = uint32(len(p.data)) * 8 / uint32(item.Duration) / 1000
+			trackBitRate = uint32(p.dataSize) * 8 / uint32(item.Duration) / 1000
 		}
 	} else if format == "alac" {
 		if item.Duration > 0 {
-			trackBitRate = uint32(len(p.data)) * 8 / uint32(item.Duration) / 1000
+			trackBitRate = uint32(p.dataSize) * 8 / uint32(item.Duration) / 1000
 		} else {
 			trackBitRate = 800
 		}
@@ -166,7 +183,7 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(destPath, p.data, 0644); err != nil {
+	if _, err := copyFile(destPath, p.dataPath); err != nil {
 		return err
 	}
 
@@ -180,7 +197,7 @@ func InstallTrack(dev *ipod.Device, p *preparedTrack, format string, bitRate int
 		TrackNumber: uint16(item.Track),
 		Year:        uint16(item.Year),
 		Duration:    uint32(item.Duration * 1000),
-		Size:        uint32(len(p.data)),
+		Size:        uint32(p.dataSize),
 		BitRate:     trackBitRate,
 		SampleRate:  44100,
 		FiletypeKey: fileType,
@@ -275,9 +292,8 @@ func ensureBookM4B(ctx context.Context, abs *audiobookshelf.Client, item BookIte
 	}
 
 	if cachedPath != "" {
-		data, err := os.ReadFile(transcodedPath)
-		if err == nil {
-			_ = os.WriteFile(cachedPath, data, 0644)
+		if _, err := copyFile(cachedPath, transcodedPath); err != nil {
+			return "", fmt.Errorf("caching %s: %w", item.Title, err)
 		}
 		return cachedPath, nil
 	}
@@ -292,11 +308,8 @@ func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 		return err
 	}
 
-	data, err := os.ReadFile(m4bPath)
+	n, err := copyFile(destPath, m4bPath)
 	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
 		return err
 	}
 
@@ -318,7 +331,7 @@ func transferWholeBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 		Album:             item.Title,
 		Path:              ipod.ToiPodPath(dev.Info.MountPoint, destPath),
 		Duration:          durationMs,
-		Size:              uint32(len(data)),
+		Size:              uint32(n),
 		FiletypeKey:       "m4b",
 		BitRate:           64,
 		SampleRate:        44100,
@@ -372,16 +385,12 @@ func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 			return err
 		}
 
-		data, err := os.ReadFile(partPath)
-		if err != nil {
-			return err
-		}
-
 		destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ".m4b", dev.Capabilities().MusicDirs)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
+		partSize, err := copyFile(destPath, partPath)
+		if err != nil {
 			return err
 		}
 
@@ -398,7 +407,7 @@ func transferSplitBook(ctx context.Context, abs *audiobookshelf.Client, dev *ipo
 			Album:             item.Title,
 			Path:              ipod.ToiPodPath(dev.Info.MountPoint, destPath),
 			Duration:          partDurationMs,
-			Size:              uint32(len(data)),
+			Size:              uint32(partSize),
 			FiletypeKey:       "m4b",
 			BitRate:           64,
 			SampleRate:        44100,
@@ -451,16 +460,12 @@ func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev
 	}
 
 	onStep("Copying to iPod")
-	data, err := os.ReadFile(finalPath)
-	if err != nil {
-		return err
-	}
-
 	destPath := ipod.AllocateFilePath(dev.Info.MountPoint, ext, dev.Capabilities().MusicDirs)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	n, err := copyFile(destPath, finalPath)
+	if err != nil {
 		return err
 	}
 
@@ -490,7 +495,7 @@ func TransferPodcastEpisode(ctx context.Context, abs *audiobookshelf.Client, dev
 		ShowName:          item.ShowName,
 		Path:              ipod.ToiPodPath(dev.Info.MountPoint, destPath),
 		Duration:          durationMs,
-		Size:              uint32(len(data)),
+		Size:              uint32(n),
 		FiletypeKey:       fileType,
 		BitRate:           128,
 		SampleRate:        44100,

@@ -63,8 +63,9 @@ type SyncSettings struct {
 	MusicFormat         string `json:"musicFormat"`
 	MusicBitRate        int    `json:"musicBitRate"`
 	SyncPodcastPosition bool   `json:"syncPodcastPosition"`
-	TwoWayPodcastSync   bool   `json:"twoWayPodcastSync"`
-	MixToMono           bool   `json:"mixToMono"`
+	TwoWayPodcastSync      bool   `json:"twoWayPodcastSync"`
+	RemoveFinishedPodcasts bool   `json:"removeFinishedPodcasts"`
+	MixToMono              bool   `json:"mixToMono"`
 }
 
 type ServerURLs struct {

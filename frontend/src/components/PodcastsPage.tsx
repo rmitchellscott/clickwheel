@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Check, Podcast, X, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { GetABSLibraries, GetABSPodcasts, SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
+import { GetABSLibraries, GetABSPodcasts, GetABSProgress, SetInclusions, GetInclusions } from '../../wailsjs/go/main/App'
 
 type SortKey = 'title' | 'author' | 'episodes' | 'size'
 type SortDir = 'asc' | 'desc'
@@ -35,6 +35,7 @@ export function PodcastsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const [loaded, setLoaded] = useState(false)
+  const [finishedCounts, setFinishedCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     if (absConnected && !loaded) {
@@ -57,6 +58,17 @@ export function PodcastsPage() {
             useAppStore.setState({
               includedPodcasts: new Set(inc?.podcasts || []),
             })
+          })
+
+          GetABSProgress().then(prog => {
+            if (!prog) return
+            const counts: Record<string, number> = {}
+            for (const mp of Object.values(prog)) {
+              if (mp.episodeId && mp.isFinished) {
+                counts[mp.libraryItemId] = (counts[mp.libraryItemId] || 0) + 1
+              }
+            }
+            setFinishedCounts(counts)
           })
         })
       })
@@ -113,6 +125,9 @@ export function PodcastsPage() {
   const selectedEpisodes = podcasts
     .filter(p => includedPodcasts.has(p.id))
     .reduce((acc, p) => acc + p.episodeCount, 0)
+  const selectedFinished = podcasts
+    .filter(p => includedPodcasts.has(p.id))
+    .reduce((acc, p) => acc + (finishedCounts[p.id] || 0), 0)
 
   if (!absConfigured) {
     return (
@@ -145,7 +160,7 @@ export function PodcastsPage() {
         <div>
           <h2 className="text-lg font-semibold">Podcasts</h2>
           <p className="text-sm text-muted-foreground">
-            {includedPodcasts.size} show{includedPodcasts.size !== 1 ? 's' : ''} &middot; {selectedEpisodes} episodes &middot; {formatBytes(selectedSize)}
+            {includedPodcasts.size} show{includedPodcasts.size !== 1 ? 's' : ''} &middot; {selectedFinished > 0 ? `${selectedEpisodes - selectedFinished} new` : `${selectedEpisodes} episodes`} &middot; {formatBytes(selectedSize)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -204,7 +219,13 @@ export function PodcastsPage() {
                   <div className="text-xs text-muted-foreground">{podcast.author}</div>
                 </div>
                 <div className="flex items-center gap-4 shrink-0 text-xs text-muted-foreground">
-                  <span>{podcast.episodeCount} episode{podcast.episodeCount !== 1 ? 's' : ''}</span>
+                  <span className="w-32 text-right">
+                    {(() => {
+                      const finished = finishedCounts[podcast.id] || 0
+                      const unfinished = podcast.episodeCount - finished
+                      return <>{unfinished} new &middot; <span className="text-muted-foreground/50">{podcast.episodeCount} total</span></>
+                    })()}
+                  </span>
                   <span className="w-16 text-right">{formatBytes(podcast.size)}</span>
                 </div>
               </button>

@@ -496,7 +496,7 @@ export function SyncPage() {
             </Button>
           ) : (
             <>
-              <Button onClick={startSync} disabled={!canSync || !!inSync} size="lg" className="gap-2">
+              <Button onClick={startSync} disabled={!canSync || !!inSync || syncPlanLoading || !syncPlan} size="lg" className="gap-2">
                 <Play className="h-4 w-4" />
                 Start Sync
               </Button>

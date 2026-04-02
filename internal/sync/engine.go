@@ -120,6 +120,7 @@ type Engine struct {
 	sub        *subsonic.Client
 	abs        *audiobookshelf.Client
 	mountPoint string
+	cachedPlan *SyncPlan
 }
 
 func NewEngine(host *config.HostConfig, device *config.DeviceConfig, sub *subsonic.Client, abs *audiobookshelf.Client, mountPoint string) *Engine {
@@ -161,10 +162,23 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 
 	purgeUnmanagedTracks(dev)
 
-	plan, err := BuildPlan(ctx, e.device, e.sub, e.abs, dev)
+	var finishedPodcasts map[string]bool
+	if e.device.SyncSettings.RemoveFinishedPodcasts && e.abs != nil {
+		if allProg, err := e.abs.GetAllProgress(); err == nil {
+			finishedPodcasts = make(map[string]bool)
+			for _, mp := range allProg {
+				if mp.EpisodeID != "" && mp.IsFinished {
+					finishedPodcasts[mp.LibraryItemID+"|"+mp.EpisodeID] = true
+				}
+			}
+		}
+	}
+
+	plan, err := BuildPlan(ctx, e.device, e.sub, e.abs, dev, finishedPodcasts)
 	if err != nil {
 		return nil, fmt.Errorf("building sync plan: %w", err)
 	}
+	e.cachedPlan = plan
 
 	trackBySource := make(map[string]*itunesdb.Track, len(dev.DB.Tracks))
 	for _, t := range dev.DB.Tracks {
@@ -246,6 +260,11 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 		}
 	}
 
+	var allProgress map[string]audiobookshelf.MediaProgress
+	if e.abs != nil && (e.device.SyncSettings.SyncBookPosition || e.device.SyncSettings.SyncPodcastPosition) {
+		allProgress, _ = e.abs.GetAllProgress()
+	}
+
 	if e.device.SyncSettings.SyncBookPosition && e.abs != nil {
 		type splitPreviewGroup struct {
 			bookTitle string
@@ -272,9 +291,11 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 				continue
 			}
 
-			progress, err := e.abs.GetProgress(track.SourceID)
-			if err != nil {
-				continue
+			var progress *audiobookshelf.MediaProgress
+			if allProgress != nil {
+				if mp, ok := allProgress[track.SourceID]; ok {
+					progress = &mp
+				}
 			}
 
 			ipodTime := float64(track.BookmarkTime) / 1000.0
@@ -307,9 +328,11 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 			}
 			seenBooks[bookID] = true
 
-			progress, err := e.abs.GetProgress(bookID)
-			if err != nil {
-				continue
+			var progress *audiobookshelf.MediaProgress
+			if allProgress != nil {
+				if mp, ok := allProgress[bookID]; ok {
+					progress = &mp
+				}
 			}
 
 			ipodGlobal := splitBookGlobalPosition(g.tracks, g.parts)
@@ -348,9 +371,13 @@ func (e *Engine) Preview(ctx context.Context) (*PlanSummary, error) {
 				continue
 			}
 
-			progress, err := e.abs.GetEpisodeProgress(itemID, episodeID)
-			if err != nil {
-				continue
+			var progress *audiobookshelf.MediaProgress
+			if allProgress != nil {
+				if mp, ok := allProgress[itemID+"|"+episodeID]; ok {
+					progress = &mp
+				}
+			} else {
+				progress, _ = e.abs.GetEpisodeProgress(itemID, episodeID)
 			}
 
 			ipodTime := float64(track.BookmarkTime) / 1000.0
@@ -409,13 +436,16 @@ func (e *Engine) Run(ctx context.Context, onProgress ProgressFunc) error {
 		}
 	}
 
+	var finishedPodcasts map[string]bool
 	if e.device.SyncSettings.SyncPodcastPosition {
-		if err := e.syncPodcastProgress(ctx, dev, onProgress); err != nil {
+		var err error
+		finishedPodcasts, err = e.syncPodcastProgress(ctx, dev, onProgress)
+		if err != nil {
 			return fmt.Errorf("syncing podcast progress: %w", err)
 		}
 	}
 
-	plan, err := e.buildPlan(ctx, dev, onProgress)
+	plan, err := e.buildPlan(ctx, dev, onProgress, finishedPodcasts)
 	if err != nil {
 		return fmt.Errorf("building sync plan: %w", err)
 	}
@@ -498,6 +528,22 @@ func (e *Engine) syncBookmarks(ctx context.Context, dev *ipod.Device, onProgress
 	}
 	onProgress(Progress{Phase: "bookmarks", Message: "Syncing audiobook progress..."})
 
+	allProgress, _ := e.abs.GetAllProgress()
+
+	lookupProgress := func(id string) *audiobookshelf.MediaProgress {
+		if allProgress != nil {
+			if mp, ok := allProgress[id]; ok {
+				return &mp
+			}
+			return nil
+		}
+		mp, err := e.abs.GetProgress(id)
+		if err != nil {
+			return nil
+		}
+		return mp
+	}
+
 	type splitGroup struct {
 		tracks []*itunesdb.Track
 		parts  []config.BookSplitPart
@@ -511,7 +557,7 @@ func (e *Engine) syncBookmarks(ctx context.Context, dev *ipod.Device, onProgress
 
 		bookID, _, isSplit := splitBookSourceID(track.SourceID)
 		if !isSplit {
-			e.syncSingleBookmark(track)
+			e.syncSingleBookmarkWith(track, lookupProgress(track.SourceID))
 			continue
 		}
 
@@ -531,10 +577,7 @@ func (e *Engine) syncBookmarks(ctx context.Context, dev *ipod.Device, onProgress
 			continue
 		}
 
-		progress, err := e.abs.GetProgress(bookID)
-		if err != nil {
-			continue
-		}
+		progress := lookupProgress(bookID)
 
 		ipodGlobal := splitBookGlobalPosition(g.tracks, parts)
 		prev := e.device.SyncState.BookmarkStates[bookID]
@@ -601,12 +644,7 @@ func distributePositionToParts(tracks []*itunesdb.Track, parts []config.BookSpli
 	}
 }
 
-func (e *Engine) syncSingleBookmark(track *itunesdb.Track) {
-	progress, err := e.abs.GetProgress(track.SourceID)
-	if err != nil {
-		return
-	}
-
+func (e *Engine) syncSingleBookmarkWith(track *itunesdb.Track, progress *audiobookshelf.MediaProgress) {
 	ipodTime := float64(track.BookmarkTime) / 1000.0
 	prev := e.device.SyncState.BookmarkStates[track.SourceID]
 
@@ -641,11 +679,13 @@ func splitPodcastSourceID(sourceID string) (itemID, episodeID string) {
 	return parts[0], parts[1]
 }
 
-func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onProgress ProgressFunc) error {
+func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onProgress ProgressFunc) (map[string]bool, error) {
 	if e.abs == nil {
-		return nil
+		return nil, nil
 	}
 	onProgress(Progress{Phase: "bookmarks", Message: "Syncing podcast progress..."})
+
+	allProgress, _ := e.abs.GetAllProgress()
 
 	for _, track := range dev.DB.Tracks {
 		if track.SourceID == "" || track.MediaType != itunesdb.MediaTypePodcast {
@@ -657,9 +697,13 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 			continue
 		}
 
-		progress, err := e.abs.GetEpisodeProgress(itemID, episodeID)
-		if err != nil {
-			continue
+		var progress *audiobookshelf.MediaProgress
+		if allProgress != nil {
+			if mp, ok := allProgress[itemID+"|"+episodeID]; ok {
+				progress = &mp
+			}
+		} else {
+			progress, _ = e.abs.GetEpisodeProgress(itemID, episodeID)
 		}
 
 		ipodTime := float64(track.BookmarkTime) / 1000.0
@@ -673,13 +717,17 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 
 			if ipodChanged && (!absChanged || ipodTime > absTime) {
 				if e.device.SyncSettings.TwoWayPodcastSync {
-					_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, progress.Duration)
+					duration := progress.Duration
+					finished := duration > 0 && ipodTime/duration >= 0.95
+					_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, duration, finished)
 				}
 			} else if absChanged {
 				track.BookmarkTime = uint32(absTime * 1000)
 			}
 		} else if ipodTime > 0 && e.device.SyncSettings.TwoWayPodcastSync {
-			_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, float64(track.Duration)/1000.0)
+			duration := float64(track.Duration) / 1000.0
+			finished := duration > 0 && ipodTime/duration >= 0.95
+			_ = e.abs.UpdateEpisodeProgress(itemID, episodeID, ipodTime, duration, finished)
 		}
 
 		e.device.SyncState.BookmarkStates[track.SourceID] = config.PositionSyncState{
@@ -688,12 +736,32 @@ func (e *Engine) syncPodcastProgress(ctx context.Context, dev *ipod.Device, onPr
 		}
 	}
 
-	return nil
+	if !e.device.SyncSettings.RemoveFinishedPodcasts {
+		return nil, nil
+	}
+
+	freshProgress, err := e.abs.GetAllProgress()
+	if err != nil {
+		return nil, nil
+	}
+
+	finished := make(map[string]bool)
+	for _, mp := range freshProgress {
+		if mp.EpisodeID != "" && mp.IsFinished {
+			finished[mp.LibraryItemID+"|"+mp.EpisodeID] = true
+		}
+	}
+	return finished, nil
 }
 
-func (e *Engine) buildPlan(ctx context.Context, dev *ipod.Device, onProgress ProgressFunc) (*SyncPlan, error) {
+func (e *Engine) buildPlan(ctx context.Context, dev *ipod.Device, onProgress ProgressFunc, finishedPodcasts map[string]bool) (*SyncPlan, error) {
+	if e.cachedPlan != nil {
+		plan := e.cachedPlan
+		e.cachedPlan = nil
+		return plan, nil
+	}
 	onProgress(Progress{Phase: "plan", Message: "Building sync plan..."})
-	return BuildPlan(ctx, e.device, e.sub, e.abs, dev)
+	return BuildPlan(ctx, e.device, e.sub, e.abs, dev, finishedPodcasts)
 }
 
 const checkpointInterval = 50
@@ -811,7 +879,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 
 			p := <-results[i]
 			if err := InstallTrack(dev, p, format, bitRate, mono); err != nil {
-				return err
+				log.Printf("[sync] skipping track %q: %v", item.Title, err)
+				continue
 			}
 			tracker.record(item.Size, time.Since(lastDone))
 			lastDone = time.Now()
@@ -848,7 +917,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 				ETA:     tracker.eta(),
 			})
 		}); err != nil {
-			return err
+			log.Printf("[sync] skipping book %q: %v", item.Title, err)
+			continue
 		}
 		if item.SplitParts != nil {
 			e.device.SyncState.BookSplits[item.SourceID] = config.BookSplitInfo{
@@ -888,7 +958,8 @@ func (e *Engine) executePlan(ctx context.Context, dev *ipod.Device, plan *SyncPl
 				ETA:     tracker.eta(),
 			})
 		}); err != nil {
-			return err
+			log.Printf("[sync] skipping podcast %q: %v", item.Title, err)
+			continue
 		}
 		tracker.record(item.Size, time.Since(itemStart))
 		sinceCheckpoint++

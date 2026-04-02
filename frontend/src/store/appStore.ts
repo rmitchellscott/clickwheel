@@ -121,6 +121,7 @@ export interface SyncSettings {
   musicBitRate: number
   syncPodcastPosition: boolean
   twoWayPodcastSync: boolean
+  removeFinishedPodcasts: boolean
   mixToMono: boolean
 }
 
