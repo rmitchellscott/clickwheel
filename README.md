@@ -50,5 +50,6 @@ make build
 ```
 
 ## License
+Copyright (C) 2026 Mitchell Scott
 
-GPLv3
+Licensed under the GNU General Public License v3.0.
